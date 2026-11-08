@@ -105,6 +105,14 @@ public sealed class IpnsSubscription : INotifyPropertyChanged
     [JsonIgnore]
     public bool HasPrevious => !string.IsNullOrWhiteSpace(PreviousCid);
 
+    /// <summary>最近一次操作是否失败（列表状态点使用警示色）</summary>
+    [JsonIgnore]
+    public bool IsFailed => Status == StatusFailed;
+
+    /// <summary>最近一次操作是否正常（成功、已是最新或已回滚）</summary>
+    [JsonIgnore]
+    public bool IsHealthy => Status is StatusSuccess or StatusUpToDate or StatusRestored;
+
     /// <summary>本地目录名：sub- + IpnsId 的 SHA256 前 8 位十六进制</summary>
     [JsonIgnore]
     public string DirectoryName =>
@@ -136,6 +144,11 @@ public sealed class IpnsSubscription : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         if (propertyName == nameof(PreviousCid))
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPrevious)));
+        if (propertyName == nameof(Status))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFailed)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsHealthy)));
+        }
         return true;
     }
 }

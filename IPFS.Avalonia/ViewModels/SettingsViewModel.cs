@@ -400,11 +400,29 @@ public partial class SettingsViewModel : PageViewModelBase
     {
         if (sub == null || IsSubscribing) return;
         var confirmed = await Dialogs.ConfirmAsync("取消订阅",
-            $"确定取消订阅[{sub.Name}]？\n本地已下载的数据库与备份将被删除。");
+            $"确定取消订阅[{sub.Name}]？\n本地已下载的数据库与备份将被删除。\n\nIPNS：{sub.IpnsId}");
         if (!confirmed) return;
 
         await subscriptions.RemoveAsync(sub);
         SubscriptionMessage = $"已取消订阅[{sub.Name}]。";
+    }
+
+    /// <summary>复制订阅的 IPNS 标识</summary>
+    [RelayCommand]
+    async Task CopySubscriptionIpnsAsync(IpnsSubscription? sub)
+    {
+        if (sub == null) return;
+        await Dialogs.CopyToClipboardAsync(sub.IpnsId);
+        SubscriptionMessage = $"已复制 IPNS：{sub.IpnsId}";
+    }
+
+    /// <summary>复制订阅当前版本的库 CID</summary>
+    [RelayCommand]
+    async Task CopySubscriptionCidAsync(IpnsSubscription? sub)
+    {
+        if (sub == null || string.IsNullOrEmpty(sub.LastCid)) return;
+        await Dialogs.CopyToClipboardAsync(sub.LastCid);
+        SubscriptionMessage = $"已复制库 CID：{sub.LastCid}";
     }
 
     /// <summary>别名输入框失焦时保存：清空表示跟随数据仓库名称</summary>

@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:IPFS.ViewModels"
              xmlns:core="clr-namespace:IPFS;assembly=IPFS.Core"
+             xmlns:conv="using:Avalonia.Data.Converters"
              xmlns:sys="using:System"
              x:Class="IPFS.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
@@ -149,34 +150,63 @@
                     <ItemsControl ItemsSource="{Binding Subscriptions}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="core:IpnsSubscription">
-                                <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0"
-                                        Padding="0,8,0,0" Margin="0,4,0,0">
-                                    <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto"
-                                          ColumnSpacing="8" RowSpacing="4">
-                                        <TextBox Text="{Binding Alias, Mode=TwoWay}"
+                                <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,4,0,0">
+                                    <Grid ColumnDefinitions="200,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+                                        <!-- 第一行：别名、状态徽标、紧凑操作按钮 -->
+                                        <TextBox Text="{Binding Alias, Mode=TwoWay}" VerticalAlignment="Center"
                                                  PlaceholderText="{Binding Name}"
                                                  LostFocus="OnAliasLostFocus"
                                                  ToolTip.Tip="别名；留空则跟随数据仓库名称" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{Binding Status}" FontSize="11" Opacity="0.7" />
-                                            <TextBlock Text="{Binding LastCid}" FontSize="11"
-                                                       FontFamily="Consolas,Menlo,monospace" Opacity="0.55"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding LastCheckedAt}" FontSize="11" Opacity="0.55" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                                    HorizontalAlignment="Left" VerticalAlignment="Center">
+                                            <Ellipse Width="6" Height="6" VerticalAlignment="Center" Fill="#3BA55D"
+                                                     IsVisible="{Binding IsHealthy}" />
+                                            <Ellipse Width="6" Height="6" VerticalAlignment="Center" Fill="#D9534F"
+                                                     IsVisible="{Binding IsFailed}" />
+                                            <TextBlock Text="{Binding Status}" FontSize="11" Opacity="0.7"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding LastCheckedAt, TargetNullValue='从未检查'}"
+                                                       FontSize="11" Opacity="0.55" VerticalAlignment="Center" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
-                                                    VerticalAlignment="Center">
-                                            <Button Content="更新"
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <Button Content="更新" Width="64" 
                                                     Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).UpdateSubscriptionCommand}"
                                                     CommandParameter="{Binding}" />
-                                            <Button Content="恢复上一版本"
-                                                    IsEnabled="{Binding HasPrevious}"
+                                            <Button Content="恢复" Width="64" 
+                                                    IsEnabled="{Binding HasPrevious}" ToolTip.Tip="恢复到上一版本"
                                                     Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RestoreSubscriptionCommand}"
                                                     CommandParameter="{Binding}" />
-                                            <Button Content="取消订阅"
+                                            <Button Content="取消" Width="64" 
+                                                    ToolTip.Tip="取消订阅"
                                                     Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveSubscriptionCommand}"
                                                     CommandParameter="{Binding}" />
                                         </StackPanel>
+
+                                        <!-- IPNS 显示复制 -->
+                                        <TextBlock Grid.Row="1" Text="IPNS" FontSize="11" Opacity="0.55"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding IpnsId}"
+                                                   FontSize="11" FontFamily="Consolas,Menlo,monospace"
+                                                   VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <Button Grid.Row="1" Grid.Column="2" Content="复制" Width="64" 
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CopySubscriptionIpnsCommand}"
+                                                CommandParameter="{Binding}" />
+
+                                        <!-- 库 CID 显示复制 -->
+                                        <TextBlock Grid.Row="2" Text="库 CID" FontSize="11" Opacity="0.55"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1"
+                                                   Text="{Binding LastCid, TargetNullValue='（未下载）'}"
+                                                   FontSize="11" FontFamily="Consolas,Menlo,monospace"
+                                                   Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding LastCid}" />
+                                        <Button Grid.Row="2" Grid.Column="2" Content="复制" Width="64" 
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                IsVisible="{Binding LastCid, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CopySubscriptionCidCommand}"
+                                                CommandParameter="{Binding}" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>
