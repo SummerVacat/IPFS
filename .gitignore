@@ -1,0 +1,16 @@
+# 构建产物
+bin/
+obj/
+
+# Visual Studio / IDE
+.vs/
+*.user
+*.suo
+.idea/
+
+# 运行时数据（SQLite 数据库、IPNS 发布文件等）
+Data/
+
+# 日志与临时文件
+*.log
+*.tmp

@@ -1,0 +1,292 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:IPFS.ViewModels"
+             xmlns:core="clr-namespace:IPFS;assembly=IPFS.Core"
+             xmlns:sys="using:System"
+             x:Class="IPFS.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <UserControl.Styles>
+        <!-- 统一按钮文字居中，避免定宽按钮内文字左右不齐 -->
+        <Style Selector="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16" Spacing="12" MaxWidth="900">
+
+            <TextBlock Text="设置" FontSize="20" FontWeight="Bold" />
+
+            <!-- 连接与存储配置 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="连接与存储" FontWeight="SemiBold" />
+
+                    <Grid ColumnDefinitions="110,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                          RowSpacing="8" ColumnSpacing="8">
+                        <TextBlock Text="HTTP API" Opacity="0.7" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1" Text="{Binding ApiBaseUrl}"
+                                 PlaceholderText="http://localhost:5001" />
+                        <Button Grid.Column="2" Content="测试" Width="64"
+                                Command="{Binding TestApiCommand}" />
+
+                        <TextBlock Grid.Row="1" Text="视频网关" Opacity="0.7" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding GatewayBaseUrl}"
+                                 PlaceholderText="http://localhost:8080" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="测试" Width="64"
+                                Command="{Binding TestGatewayCommand}" />
+
+                        <TextBlock Grid.Row="2" Text="数据根目录" Opacity="0.7" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding RootFolderName}"
+                                 PlaceholderText="Data" />
+                        <Button Grid.Row="2" Grid.Column="2" Content="打开" Width="64"
+                                Command="{Binding OpenRootFolderCommand}"
+                                ToolTip.Tip="在资源管理器中查看数据根目录" />
+
+                        <TextBlock Grid.Row="3" Text="数据库文件名" Opacity="0.7" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DatabaseFileName}"
+                                 PlaceholderText="IPFSData.db" />
+
+                        <TextBlock Grid.Row="4" Text="数据仓库名称" Opacity="0.7" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding RepositoryName}"
+                                 PlaceholderText="我的文件库" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding DatabaseFilePath}" FontSize="11" Opacity="0.6"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding ApiTestResult}" FontSize="12" Opacity="0.75"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding GatewayTestResult}" FontSize="12" Opacity="0.75"
+                               TextWrapping="Wrap" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="保存设置" Command="{Binding SaveCommand}" />
+                        <Button Content="恢复默认" Command="{Binding ResetDefaultsCommand}" />
+                        <TextBlock Text="{Binding SaveMessage}" VerticalAlignment="Center"
+                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <TextBlock Text="API 与网关保存后立即生效；数据库路径变更需重启程序。" FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                    <TextBlock Text="数据仓库名称会写入 IPNS 的 manifest；改名后不会立即重新发布，下次上传或发布时生效。"
+                               FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- IPNS -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="IPNS 密钥" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="刷新" Width="64" Command="{Binding RefreshIpnsCommand}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6"
+                          ColumnSpacing="8">
+                        <TextBlock Text="发布密钥" Opacity="0.7" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="180" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding PublishKeyOptions}"
+                                  SelectedItem="{Binding SelectedPublishKey}" />
+
+                        <TextBlock Grid.Row="1" Text="当前发布密钥" Opacity="0.7"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CurrentPublishKeyText}"
+                                   FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding CurrentPublishKeyText}" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="分享" Width="64"
+                                HorizontalAlignment="Right"
+                                Command="{Binding CopyShareTextCommand}"
+                                ToolTip.Tip="复制订阅源分享文本（名称、地址与提示）" />
+                    </Grid>
+                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                               Text="切换只影响今后的发布；订阅者需改用新 IPNS 才能继续获取更新。" />
+                    <ItemsControl ItemsSource="{Binding IpnsKeys}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:IPNSData">
+                                <Grid ColumnDefinitions="120,*,Auto" Margin="0,2">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Id}"
+                                               FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Button Grid.Column="2" Content="复制"  Width="64"
+                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CopyIpnsCommand}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding IpnsMessage}" FontSize="12" Opacity="0.75"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- IPNS 订阅 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="IPNS 订阅" FontWeight="SemiBold" />
+
+                    <Grid ColumnDefinitions="*,150,Auto" ColumnSpacing="8">
+                        <TextBox Text="{Binding NewSubscriptionIpns}"
+                                 PlaceholderText="IPNS 名称或 /ipns/ 地址（k51…、example.com）" />
+                        <TextBox Grid.Column="1" Text="{Binding NewSubscriptionAlias}"
+                                 PlaceholderText="别名（可选）" />
+                        <Button Grid.Column="2" Content="订阅" Width="64"
+                                Command="{Binding SubscribeCommand}" />
+                    </Grid>
+
+                    <TextBlock Text="订阅会把远端数据库下载到本地（仅保留当前与上一版本），订阅数据只读。"
+                               FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+
+                    <ItemsControl ItemsSource="{Binding Subscriptions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:IpnsSubscription">
+                                <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0"
+                                        Padding="0,8,0,0" Margin="0,4,0,0">
+                                    <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto"
+                                          ColumnSpacing="8" RowSpacing="4">
+                                        <TextBox Text="{Binding Alias, Mode=TwoWay}"
+                                                 PlaceholderText="{Binding Name}"
+                                                 LostFocus="OnAliasLostFocus"
+                                                 ToolTip.Tip="别名；留空则跟随数据仓库名称" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{Binding Status}" FontSize="11" Opacity="0.7" />
+                                            <TextBlock Text="{Binding LastCid}" FontSize="11"
+                                                       FontFamily="Consolas,Menlo,monospace" Opacity="0.55"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding LastCheckedAt}" FontSize="11" Opacity="0.55" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                                    VerticalAlignment="Center">
+                                            <Button Content="更新"
+                                                    Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).UpdateSubscriptionCommand}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Content="恢复上一版本"
+                                                    IsEnabled="{Binding HasPrevious}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RestoreSubscriptionCommand}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Content="取消订阅"
+                                                    Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveSubscriptionCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="更新全部订阅" Command="{Binding UpdateAllSubscriptionsCommand}" />
+                        <TextBlock Text="{Binding SubscriptionMessage}" VerticalAlignment="Center"
+                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 订阅定时更新 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="订阅定时更新" FontWeight="SemiBold" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <CheckBox Content="启用定时更新" IsChecked="{Binding AutoUpdateEnabled}"
+                                  VerticalAlignment="Center" />
+                        <TextBlock Text="间隔" VerticalAlignment="Center" Opacity="0.7" />
+                        <ComboBox ItemsSource="{Binding AutoUpdateOptions}"
+                                  SelectedItem="{Binding SelectedAutoUpdateOption}" Width="120">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:AutoUpdateOption">
+                                    <TextBlock Text="{Binding Text}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                    <TextBlock Text="启动后从第一个间隔开始，不会在程序启动时立即检查。" FontSize="12" Opacity="0.6" />
+                </StackPanel>
+            </Border>
+
+            <!-- 仓库维护：只删除未固定数据块，由用户手动触发 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="仓库维护" FontWeight="SemiBold" />
+                    <TextBlock Text="删除仓库中所有未固定的数据块（预览缓存、已解除固定的远程专辑缓存等）。已固定的本地专辑不受影响。"
+                               FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="{Binding CleanupRepoButtonText}"
+                                Command="{Binding CleanupRepoCommand}" />
+                        <TextBlock Text="{Binding RepoMessage}" VerticalAlignment="Center"
+                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBlock Text="清理只删除未固定的数据块，不会在取消订阅或删除缓存时自动执行；清理可能耗时，期间请勿关闭程序。"
+                               FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- CID 查询 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="诊断：CID 查询" FontWeight="SemiBold" />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Text="{Binding CidQuery}" PlaceholderText="输入文件夹 CID" />
+                        <Button Grid.Column="1" Content="查询" Margin="8,0,0,0"
+                                Command="{Binding QueryCidCommand}" />
+                    </Grid>
+                    <TextBox Text="{Binding QueryResult, Mode=OneWay}" IsReadOnly="True"
+                             AcceptsReturn="True" TextWrapping="Wrap" Height="180"
+                             FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                </StackPanel>
+            </Border>
+
+            <!-- 运行日志 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="运行日志" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="复制全部" Command="{Binding CopyLogCommand}" />
+                    </Grid>
+                    <ScrollViewer Height="260" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Log.LogEntries}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sys:String">
+                                    <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap"
+                                                         FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+
+            <!-- 关于 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="关于" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="打开日志目录"
+                                Command="{Binding OpenLogFolderCommand}"
+                                ToolTip.Tip="打开 app-error.log 所在目录" />
+                    </Grid>
+                    <TextBlock Text="{Binding AppVersionText}" FontSize="12" Opacity="0.75" />
+                </StackPanel>
+            </Border>
+		
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

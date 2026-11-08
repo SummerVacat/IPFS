@@ -1,0 +1,193 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:IPFS.ViewModels"
+             x:Class="IPFS.Views.HomeView"
+             x:DataType="vm:HomeViewModel">
+
+    <UserControl.Resources>
+        <!-- 数据源类型图标 -->
+        <StreamGeometry x:Key="IconDatabase">M12 3C7.58 3 4 4.79 4 7v10c0 2.21 3.58 4 8 4s8-1.79 8-4V7c0-2.21-3.58-4-8-4zm0 2c3.87 0 6 1.5 6 2s-2.13 2-6 2-6-1.5-6-2 2.13-2 6-2zm0 14c-3.87 0-6-1.5-6-2v-2.23c1.61.78 3.72 1.23 6 1.23s4.39-.45 6-1.23V17c0 .5-2.13 2-6 2zm0-4c-3.87 0-6-1.5-6-2v-2.23C7.61 11.55 9.72 12 12 12s4.39-.45 6-1.23V13c0 .5-2.13 2-6 2z</StreamGeometry>
+        <StreamGeometry x:Key="IconCloud">M19.35 10.04A7.49 7.49 0 0012 4a7.48 7.48 0 00-6.91 4.83A6 6 0 006 20h13a5 5 0 00.35-9.96zM19 18H6a4 4 0 01-.68-7.94l.94-.16.32-.9A5.49 5.49 0 0112 6c2.4 0 4.5 1.56 5.23 3.88l.29.9.94.14A3 3 0 0119 18z</StreamGeometry>
+        <StreamGeometry x:Key="IconChevronLeft">M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z</StreamGeometry>
+        <StreamGeometry x:Key="IconChevronRight">M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z</StreamGeometry>
+
+        <!-- 专辑右键菜单：网格与列表共用一份，可见性全部由缓存状态派生 -->
+        <ContextMenu x:Key="AlbumMenu" x:DataType="vm:AlbumItemViewModel" Opening="AlbumMenuOpening">
+            <MenuItem Header="打开" Command="{Binding OpenCommand}" />
+            <MenuItem Header="下载打包文件" Command="{Binding DownloadArchiveCommand}" />
+            <MenuItem Header="下载专辑" Command="{Binding DownloadFolderCommand}" />
+            <MenuItem Header="复制 CID" Command="{Binding CopyCidCommand}" />
+            <MenuItem Header="{Binding CacheMenuText}" Command="{Binding CacheCommand}"
+                      IsVisible="{Binding IsCacheMenuVisible}" />
+            <MenuItem Header="删除专辑" Command="{Binding DeleteCommand}"
+                      IsVisible="{Binding IsDeleteMenuVisible}" />
+        </ContextMenu>
+
+        <!-- 网格视图卡片 -->
+        <DataTemplate x:Key="AlbumCardTemplate" x:DataType="vm:AlbumItemViewModel">
+            <Button Command="{Binding OpenCommand}"
+                    ContextMenu="{StaticResource AlbumMenu}"
+                    Padding="0" Margin="0,0,5,5"
+                    Background="Transparent" BorderThickness="0">
+                <Border Width="220" Height="186" CornerRadius="6"
+                        Background="{DynamicResource CardBackgroundBrush}"
+                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                        ClipToBounds="True">
+                    <Panel>
+                        <Grid RowDefinitions="128,*">
+                            <Border Grid.Row="0" Background="{DynamicResource CoverBackgroundBrush}">
+                                <Panel>
+                                    <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                    <TextBlock Text="{Binding Initial}"
+                                               IsVisible="{Binding !HasCover}"
+                                               FontSize="40" Opacity="0.35"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Panel>
+                            </Border>
+                            <StackPanel Grid.Row="1" Margin="10,6" Spacing="2">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Date}" FontSize="11" Opacity="0.65" />
+                                <TextBlock Text="{Binding FileCountText}" FontSize="11" Opacity="0.65" />
+                            </StackPanel>
+                        </Grid>
+                        <Border IsVisible="{Binding IsCacheBusy}"
+                                Background="{DynamicResource CardBusyOverlayBrush}"
+                                IsHitTestVisible="False">
+                            <StackPanel Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <ProgressBar IsIndeterminate="True" Width="80" Height="4" />
+                                <TextBlock Text="缓存中…" FontSize="11"
+                                           Foreground="{DynamicResource MediaOverlayForegroundBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </Panel>
+                </Border>
+            </Button>
+        </DataTemplate>
+
+        <!-- 列表视图行 -->
+        <DataTemplate x:Key="AlbumRowTemplate" x:DataType="vm:AlbumItemViewModel">
+            <Button Command="{Binding OpenCommand}"
+                    ContextMenu="{StaticResource AlbumMenu}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                    Padding="0" Margin="0,0,0,6"
+                    Background="Transparent" BorderThickness="0">
+                <Border Background="{DynamicResource CardBackgroundBrush}"
+                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                        CornerRadius="4" Padding="10,6">
+                    <Panel>
+                        <Grid ColumnDefinitions="56,*,Auto">
+                            <Border Grid.Column="0" Width="52" Height="52"
+                                    CornerRadius="3" ClipToBounds="True"
+                                    Background="{DynamicResource CoverBackgroundBrush}">
+                                <Panel>
+                                    <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                    <TextBlock Text="{Binding Initial}"
+                                               IsVisible="{Binding !HasCover}"
+                                               FontSize="20" Opacity="0.35"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Panel>
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Date}" FontSize="11" Opacity="0.65" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{Binding FileCountText}"
+                                       FontSize="11" Opacity="0.65" VerticalAlignment="Center" />
+                        </Grid>
+                        <Border IsVisible="{Binding IsCacheBusy}"
+                                Background="{DynamicResource CardBusyOverlayBrush}"
+                                IsHitTestVisible="False">
+                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <ProgressBar IsIndeterminate="True" Width="80" Height="4" />
+                                <TextBlock Text="缓存中…" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource MediaOverlayForegroundBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </Panel>
+                </Border>
+            </Button>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel Margin="5" >
+
+        <!-- 本页状态行：贴在页面最下方，不再占用全局状态栏 -->
+        <Border DockPanel.Dock="Bottom" Height="20" Padding="0,0"
+                BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,0,0">
+            <TextBlock Text="{Binding Log.Status}" FontSize="12" Opacity="0.75"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        </Border>
+
+        <!-- 左侧数据源栏：本地数据 + IPNS 订阅，可折叠 -->
+        <Border DockPanel.Dock="Left" Width="{Binding SourceBarWidth}" Margin="0,0,5,0"
+                Background="{DynamicResource BarBackgroundBrush}"
+                BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                CornerRadius="2" ClipToBounds="True">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Height="32">
+                    <TextBlock Text="数据源" Margin="10,0,0,0" FontSize="12" Opacity="0.7"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding !IsSourceBarCollapsed}" />
+                    <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Margin="0,0,4,0" Width="24" Height="22" Padding="0"
+                            Command="{Binding ToggleSourceBarCommand}"
+                            ToolTip.Tip="{Binding SourceBarToggleText}"
+                            AutomationProperties.Name="折叠数据源">
+                        <Panel>
+                            <PathIcon Data="{StaticResource IconChevronLeft}" Width="12" Height="12"
+                                      IsVisible="{Binding !IsSourceBarCollapsed}" />
+                            <PathIcon Data="{StaticResource IconChevronRight}" Width="12" Height="12"
+                                      IsVisible="{Binding IsSourceBarCollapsed}" />
+                        </Panel>
+                    </Button>
+                </Grid>
+
+                <ListBox ItemsSource="{Binding Sources}" SelectedItem="{Binding ActiveSource}"
+                         Background="Transparent" BorderThickness="0" Margin="4,2,4,6">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AlbumSource">
+                            <StackPanel Orientation="Horizontal" Spacing="8" ToolTip.Tip="{Binding Name}">
+                                <PathIcon Data="{StaticResource IconDatabase}" Width="14" Height="14"
+                                          IsVisible="{Binding IsLocal}" />
+                                <PathIcon Data="{StaticResource IconCloud}" Width="14" Height="14"
+                                          IsVisible="{Binding !IsLocal}" />
+                                <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 无文件时的提示文字 -->
+        <TextBlock DockPanel.Dock="Top" IsVisible="{Binding IsEmpty}"
+                   Text="暂无专辑，点击「上传专辑」添加第一个专辑。"
+                   Margin="4,24" Opacity="0.7" />
+
+        <!-- 文件网格与列表 -->
+        <Panel>
+            <!-- 网格视图 -->
+            <ScrollViewer IsVisible="{Binding IsGridView}" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Albums}" ItemTemplate="{StaticResource AlbumCardTemplate}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- 列表视图 -->
+            <ScrollViewer IsVisible="{Binding !IsGridView}" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Albums}" ItemTemplate="{StaticResource AlbumRowTemplate}" />
+            </ScrollViewer>
+        </Panel>
+
+    </DockPanel>
+
+</UserControl>

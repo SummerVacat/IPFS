@@ -1,0 +1,17 @@
+root = true
+
+[*]
+end_of_line = crlf
+insert_final_newline = true
+
+# 统一使用 UTF-8（带 BOM），避免中文注释/字符串在不同工具下出现乱码
+[*.{cs,csproj,props,targets,resx,md,sln}]
+charset = utf-8-bom
+
+[*.cs]
+indent_style = space
+indent_size = 4
+
+[*.{csproj,props,targets}]
+indent_style = space
+indent_size = 2

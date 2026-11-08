@@ -1,0 +1,50 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="IPFS.App"
+             RequestedThemeVariant="Light">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- 媒体区（视频/音频/文本预览）恒为黑底，配色固定，不随浅色/深色主题切换 -->
+            <SolidColorBrush x:Key="MediaAreaBackgroundBrush" Color="Black" />
+            <SolidColorBrush x:Key="MediaOverlayForegroundBrush" Color="#F0F0F0" />
+            <SolidColorBrush x:Key="MediaOverlaySecondaryBrush" Color="#AAAAAA" />
+            <SolidColorBrush x:Key="MediaOverlayHoverBrush" Color="#44FFFFFF" />
+            <SolidColorBrush x:Key="MediaSliderThumbBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MediaSliderActiveBrush" Color="#FF4A9EFF" />
+            <SolidColorBrush x:Key="MediaSliderTrackBrush" Color="#80FFFFFF" />
+            <SolidColorBrush x:Key="MediaTextBackgroundBrush" Color="#111111" />
+            <SolidColorBrush x:Key="MediaTextForegroundBrush" Color="#DDDDDD" />
+
+            <!-- 卡片忙碌遮罩：覆盖在封面上，恒为半透明深色 -->
+            <SolidColorBrush x:Key="CardBusyOverlayBrush" Color="#B3000000" />
+
+            <!-- 浅色/深色两套配色：键名一致，由 RequestedThemeVariant 自动选择 -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="PageBackgroundBrush" Color="#F2F5F8" />
+                    <SolidColorBrush x:Key="BarBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="StatusBackgroundBrush" Color="#EDF1F5" />
+                    <SolidColorBrush x:Key="DividerBrush" Color="#DEE4EA" />
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="CardBorderBrush" Color="#DFE5EB" />
+                    <SolidColorBrush x:Key="CoverBackgroundBrush" Color="#E9EEF3" />
+                </ResourceDictionary>
+
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="PageBackgroundBrush" Color="#17191C" />
+                    <SolidColorBrush x:Key="BarBackgroundBrush" Color="#202327" />
+                    <SolidColorBrush x:Key="StatusBackgroundBrush" Color="#1C1F22" />
+                    <SolidColorBrush x:Key="DividerBrush" Color="#33373C" />
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#23262B" />
+                    <SolidColorBrush x:Key="CardBorderBrush" Color="#35393F" />
+                    <SolidColorBrush x:Key="CoverBackgroundBrush" Color="#2B2F34" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+	
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+	
+</Application>

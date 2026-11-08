@@ -1,0 +1,284 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:IPFS.ViewModels"
+             xmlns:local="clr-namespace:IPFS;assembly=IPFS.Core"
+             xmlns:vv="clr-namespace:LibVLCSharp.Avalonia;assembly=LibVLCSharp.Avalonia"
+             x:Class="IPFS.Views.DetailView"
+             x:DataType="vm:DetailViewModel">
+
+    <UserControl.Styles>
+        <!-- 播放器控制条按钮：尺寸压到最小 -->
+        <Style Selector="Button.player">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource MediaOverlayForegroundBrush}" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.player:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource MediaOverlayHoverBrush}" />
+        </Style>
+        <Style Selector="Button.player PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+        </Style>
+
+        <!-- 文件列表头部的小图标按钮 -->
+        <Style Selector="Button.tool">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.tool PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+        </Style>
+
+        <!-- 进度条/音量条：圆点缩小、轨道变细 -->
+        <Style Selector="Slider.compact /template/ Thumb">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource MediaSliderThumbBrush}" />
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Slider.compact /template/ RepeatButton#PART_DecreaseButton">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Height="4" CornerRadius="2" Background="{DynamicResource MediaSliderActiveBrush}"
+                            VerticalAlignment="Center" />
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Slider.compact /template/ RepeatButton#PART_IncreaseButton">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Height="4" CornerRadius="2" Background="{DynamicResource MediaSliderTrackBrush}"
+                            VerticalAlignment="Center" />
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <!-- 页面留白与圆角：必须写成样式而不是控件本地属性，否则本地值优先级高于 Style，影院模式的 .extended 覆盖不掉 -->
+        <Style Selector="DockPanel.page">
+            <Setter Property="Margin" Value="5" />
+        </Style>
+        <Style Selector="DockPanel.page.extended">
+            <Setter Property="Margin" Value="2" />
+        </Style>
+        <Style Selector="Grid.body">
+            <Setter Property="Margin" Value="0,5,0,0" />
+        </Style>
+        <Style Selector="Grid.body.extended">
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="Border.previewArea">
+            <Setter Property="CornerRadius" Value="5" />
+        </Style>
+        <Style Selector="Border.previewArea.extended">
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel Classes="page" Classes.extended="{Binding IsExtended}">
+
+        <!-- 专辑信息：影院模式下隐藏，把空间留给播放器 -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundBrush}"
+                BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                CornerRadius="6" Padding="10" IsVisible="{Binding !IsExtended}">
+            <Grid ColumnDefinitions="160,*">
+                <Border Width="160" Height="120" CornerRadius="4" ClipToBounds="True"
+                        Background="{DynamicResource CoverBackgroundBrush}">
+                    <Panel>
+                        <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                        <TextBlock Text="无封面" IsVisible="{Binding !HasCover}"
+                                   Opacity="0.45" HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Panel>
+                </Border>
+                <DockPanel Grid.Column="1" Margin="12,0,0,0">
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold" />
+                        <TextBlock Text="{Binding Date}" FontSize="12" Opacity="0.65" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13" />
+                    </ScrollViewer>
+                </DockPanel>
+            </Grid>
+        </Border>
+
+        <Grid Classes="body" Classes.extended="{Binding IsExtended}"
+              ColumnDefinitions="Auto,*">
+            <!-- 文件列表：影院模式下隐藏========================================================= -->
+            <DockPanel Grid.Column="0" Width="300" IsVisible="{Binding !IsExtended}" Margin="0,0,5,0">
+                <!-- 顶部按钮 -->
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" Margin="4,0,0,6">
+                    <TextBlock Text="文件列表" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="tool" Command="{Binding PlaySelectedCommand}"
+                            ToolTip.Tip="播放选中文件" AutomationProperties.Name="播放选中文件">
+                        <PathIcon Data="{DynamicResource IconPlay}" />
+                    </Button>
+                    <Button Grid.Column="2" Classes="tool" Margin="4,0,0,0"
+                            Command="{Binding DownloadFileCommand}" CommandParameter="{Binding SelectedFile}"
+                            ToolTip.Tip="下载选中文件" AutomationProperties.Name="下载选中文件">
+                        <PathIcon Data="{DynamicResource IconDownload}" />
+                    </Button>
+                    <Button Grid.Column="3" Classes="tool" Margin="4,0,0,0"
+                            Command="{Binding RefreshFilesCommand}"
+                            ToolTip.Tip="从 IPFS 刷新" AutomationProperties.Name="从 IPFS 刷新">
+                        <PathIcon Data="{DynamicResource IconRefresh}" />
+                    </Button>
+                </Grid>
+                <!-- 本页状态行：贴在文件列表下方；影院模式下随左列一起隐藏 -->
+                <Border DockPanel.Dock="Bottom" Height="20" Padding="0,0"
+                        BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,0,0">
+                    <TextBlock Text="{Binding Log.Status}" FontSize="12" Opacity="0.75"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding Log.Status}" />
+                </Border>
+                <!-- 中部内容 -->
+                <ListBox ItemsSource="{Binding Files}"
+                         SelectedItem="{Binding SelectedFile, Mode=TwoWay}"
+                         DoubleTapped="OnFileDoubleTapped">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="local:FileData">
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis">
+                                <TextBlock.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="下载文件"
+                                                  Command="{Binding $parent[ListBox].((vm:DetailViewModel)DataContext).DownloadFileCommand}"
+                                                  CommandParameter="{Binding}" />
+                                        <MenuItem Header="复制 CID"
+                                                  Command="{Binding $parent[ListBox].((vm:DetailViewModel)DataContext).CopyFileCidCommand}"
+                                                  CommandParameter="{Binding}" />
+                                    </ContextMenu>
+                                </TextBlock.ContextMenu>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+            <!-- 文件列表 | 分隔条 | 播放区 -->
+            <!--<GridSplitter Grid.Column="1" Width="10" Margin="0,0" ResizeDirection="Columns"
+                          IsVisible="{Binding !IsExtended}" />-->
+            <!-- 预览 / 播放区 -->
+            <Border Grid.Column="1" Classes="previewArea" Classes.extended="{Binding IsExtended}"
+                    Background="{DynamicResource MediaAreaBackgroundBrush}" ClipToBounds="True">
+                <!-- 控制条独占一行：VideoView 是原生子窗口，会盖住任何与它重叠的 Avalonia 控件 -->
+                <Grid RowDefinitions="*,Auto">
+                    <!-- 播放面板 -->
+                    <Panel Grid.Row="0" x:Name="MediaArea">
+                        <vv:VideoView x:Name="VideoSurface" IsVisible="{Binding IsVideoMode}" />
+
+                        <!-- 音频模式占位：无画面，显示音符与当前文件名 -->
+                        <StackPanel IsVisible="{Binding IsAudioMode}"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <PathIcon Data="M12,3V13.55A4,4 0 1,0 14,16.5V7H18V3H12Z"
+                                      Width="48" Height="48" Foreground="{DynamicResource MediaOverlaySecondaryBrush}"
+                                      HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding SelectedFile.Name}"
+                                       Foreground="{DynamicResource MediaOverlaySecondaryBrush}" FontSize="14"
+                                       MaxWidth="360" TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <Image Source="{Binding PreviewImage}" Stretch="Uniform"
+                               IsVisible="{Binding IsImageMode}" />
+
+                        <Border IsVisible="{Binding IsTextMode}" Background="{DynamicResource MediaTextBackgroundBrush}">
+                            <ScrollViewer Padding="10" VerticalScrollBarVisibility="Auto">
+                                <SelectableTextBlock Text="{Binding PreviewText, Mode=OneWay}"
+                                                     TextWrapping="Wrap"
+                                                     FontFamily="Consolas,Menlo,monospace" FontSize="13"
+                                                     Foreground="{DynamicResource MediaTextForegroundBrush}" />
+                            </ScrollViewer>
+                        </Border>
+
+                        <TextBlock Text="{Binding PreviewHint}"
+                                   IsVisible="{Binding IsPlaceholderMode}"
+                                   Foreground="{DynamicResource MediaOverlaySecondaryBrush}" FontSize="13"
+                                   TextWrapping="Wrap" MaxWidth="360"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Panel>
+                    <!-- 播放控制条面板：背景透明，底色来自视频区；鼠标静止后整行收起让画面占满 -->
+                    <Border Grid.Row="1" x:Name="ControlsBar"
+                            Background="Transparent" Padding="8,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding PreviewHint}"
+                                       IsVisible="{Binding HasPlaybackHint}"
+                                       Foreground="{DynamicResource MediaOverlayForegroundBrush}" FontSize="10" Margin="2,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
+
+                            <!-- 这里是进度条！进度行只在播放模式（视频/音频）下出现，图片/文本预览没有可播放的进度========================== -->
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,-9" 
+                                  IsVisible="{Binding IsPlaybackMode}">
+                                <TextBlock Text="{Binding TimeText}" 
+                                           Foreground="{DynamicResource MediaOverlayForegroundBrush}" FontSize="10" MinWidth="38" Height="10"
+                                           VerticalAlignment="Center" />
+                                <Slider Grid.Column="1" Classes="compact" x:Name="PositionSlider"
+                                        Minimum="0" Maximum="1" Height="25" Margin="5,0,5,15"
+                                        Value="{Binding Position, Mode=OneWay}"/>
+                                <TextBlock Grid.Column="2" Text="{Binding DurationText}"
+                                           Foreground="{DynamicResource MediaOverlaySecondaryBrush}" FontSize="10" MinWidth="38" Height="10"
+                                           TextAlignment="Right" VerticalAlignment="Center" />
+                            </Grid>
+                            <!-- 这里是播放按钮======================================================================= -->
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="0,-6" 
+                                  IsVisible="{Binding IsPlaybackMode}">
+                                <Button Classes="player" Command="{Binding PauseOrResumeCommand}"
+                                        ToolTip.Tip="播放/暂停" AutomationProperties.Name="播放暂停">
+                                    <Panel>
+                                        <PathIcon Data="{DynamicResource IconPlay}"
+                                                  IsVisible="{Binding !IsPlaying}" />
+                                        <PathIcon Data="{DynamicResource IconPause}"
+                                                  IsVisible="{Binding IsPlaying}" />
+                                    </Panel>
+                                </Button>
+                                <Button Grid.Column="1" Classes="player"
+                                        Command="{Binding StopCommand}"
+                                        ToolTip.Tip="停止" AutomationProperties.Name="停止">
+                                    <PathIcon Data="{DynamicResource IconStop}" Width="12" Height="12" />
+                                </Button>
+                                <Button Grid.Column="2" Classes="player" 
+                                        Command="{Binding OpenLocalCommand}"
+                                        ToolTip.Tip="打开本地视频" AutomationProperties.Name="打开本地视频">
+                                    <PathIcon Data="{DynamicResource IconOpenFile}" />
+                                </Button>
+                                <Button Grid.Column="3" Classes="player"
+                                        Command="{Binding ToggleMuteCommand}"
+                                        ToolTip.Tip="静音" AutomationProperties.Name="静音">
+                                    <Panel>
+                                        <PathIcon Data="{DynamicResource IconVolume}"
+                                                  IsVisible="{Binding !IsMuted}" />
+                                        <PathIcon Data="{DynamicResource IconVolumeMute}"
+                                                  IsVisible="{Binding IsMuted}" />
+                                    </Panel>
+                                </Button>
+                                <Slider Grid.Column="4" Classes="compact" Width="100" 
+                                        Minimum="0" Maximum="100" Height="25" Margin="5,0,0,15"
+                                        Value="{Binding Volume, Mode=TwoWay}" />
+                                <Button Grid.Column="6" Classes="player"
+                                        Command="{Binding ToggleExtendedCommand}"
+                                        AutomationProperties.Name="影院模式">
+                                    <Panel>
+                                        <PathIcon Data="{DynamicResource IconExpand}"
+                                                  IsVisible="{Binding !IsExtended}" />
+                                        <PathIcon Data="{DynamicResource IconCollapse}"
+                                                  IsVisible="{Binding IsExtended}" />
+                                    </Panel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+    </DockPanel>
+    
+</UserControl>
