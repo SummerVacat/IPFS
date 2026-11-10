@@ -69,6 +69,7 @@ public partial class AlbumItemViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(IsCacheMenuVisible))]
     [NotifyPropertyChangedFor(nameof(IsDeleteMenuVisible))]
     [NotifyPropertyChangedFor(nameof(IsCacheBusy))]
+    [NotifyPropertyChangedFor(nameof(IsCached))]
     private AlbumCacheState cacheState;
 
     /// <summary>单切换菜单文案：未缓存时缓存，已缓存时删除，执行中可取消</summary>
@@ -87,6 +88,9 @@ public partial class AlbumItemViewModel : ObservableObject, IDisposable
 
     /// <summary>是否正在缓存或取消缓存（卡片遮罩据此显示）</summary>
     public bool IsCacheBusy => CacheState == AlbumCacheState.RemoteBusy;
+
+    /// <summary>远程专辑已递归固定到本地（卡片显示「已缓存」徽标）</summary>
+    public bool IsCached => CacheState == AlbumCacheState.RemoteCached;
 
     public AlbumItemViewModel(Album album, Action<AlbumItemViewModel> open,
         Func<AlbumItemViewModel, Task> downloadArchive, Func<AlbumItemViewModel, Task> downloadFolder,

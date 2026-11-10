@@ -258,7 +258,7 @@
                     CornerRadius="6" Padding="12">
                 <StackPanel Spacing="8">
                     <TextBlock Text="仓库维护" FontWeight="SemiBold" />
-                    <TextBlock Text="删除仓库中所有未固定的数据块（预览缓存、已解除固定的远程专辑缓存等）。已固定的本地专辑不受影响。"
+                    <TextBlock Text="删除仓库中所有未固定的数据块（预览缓存、已解除固定的远程专辑缓存等）。已固定的本地专辑不受影响；清理后这些内容本机不再提供，除非重新缓存。"
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button Content="{Binding CleanupRepoButtonText}"
@@ -268,6 +268,98 @@
                     </StackPanel>
                     <TextBlock Text="清理只删除未固定的数据块，不会在取消订阅或删除缓存时自动执行；清理可能耗时，期间请勿关闭程序。"
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 分享与连通性：只读展示本机提供的内容与网络状况，不做自动切换 -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="分享与连通性（只读）" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="刷新" Width="64"
+                                Command="{Binding RefreshShareStatusCommand}" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding SharedSummary}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding RepoSummary}" FontSize="12" Opacity="0.75" TextWrapping="Wrap"
+                               IsVisible="{Binding RepoSummary, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+
+                    <ScrollViewer Height="150" VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding HasSharedAlbums}">
+                        <ItemsControl ItemsSource="{Binding SharedAlbums}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SharedAlbumItem">
+                                    <Grid ColumnDefinitions="*,110,120" ColumnSpacing="8" Margin="0,2">
+                                        <TextBlock Text="{Binding Name}" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Source}" FontSize="11" Opacity="0.6"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <SelectableTextBlock Grid.Column="2" Text="{Binding CidShort}" FontSize="11"
+                                                             FontFamily="Consolas,Menlo,monospace" Opacity="0.6" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <TextBlock Text="这些专辑已递归固定：只要节点保持在线，其他节点就能从本机获取；解除缓存或取消订阅后本机将不再提供。"
+                               FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+
+                    <StackPanel Spacing="4" IsVisible="{Binding HasOrphanPins}">
+                        <TextBlock Text="其他固定项（不属于任何本地专辑或订阅，通常是远端已删除专辑留下的孤立固定）"
+                                   FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                        <ScrollViewer Height="100" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding OrphanPins}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:OrphanPinItem">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,2">
+                                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                                                <SelectableTextBlock Text="{Binding Cid}" FontSize="11"
+                                                                     FontFamily="Consolas,Menlo,monospace"
+                                                                     Opacity="0.7" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Hint}" FontSize="10" Opacity="0.5"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding Hint}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="11"
+                                                       Opacity="0.6" VerticalAlignment="Center" />
+                                            <Button Grid.Column="2" Content="解除" Width="56" Height="22"
+                                                    FontSize="11" Padding="6,0"
+                                                    Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).UnpinOrphanCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+
+                    <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,0" />
+
+                    <TextBlock Text="网络连通性" FontWeight="SemiBold" FontSize="12" />
+                    <Grid ColumnDefinitions="60,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="4" ColumnSpacing="8">
+                        <TextBlock Text="节点 ID" FontSize="12" Opacity="0.6" VerticalAlignment="Center" />
+                        <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <SelectableTextBlock Text="{Binding NodeIdText}" FontSize="11"
+                                                 FontFamily="Consolas,Menlo,monospace"
+                                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="复制" Width="56" Height="22" FontSize="11"
+                                    Padding="6,0" Command="{Binding CopyNodeIdCommand}" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="1" Text="连接" FontSize="12" Opacity="0.6" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PeerSummary}" FontSize="12"
+                                   Opacity="0.75" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="2" Text="结论" FontSize="12" Opacity="0.6" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding NetworkSummary}" FontSize="12"
+                                   Opacity="0.75" TextWrapping="Wrap" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding ShareStatusMessage}" FontSize="11" Opacity="0.55" TextWrapping="Wrap"
+                               IsVisible="{Binding ShareStatusMessage, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
             </Border>
 

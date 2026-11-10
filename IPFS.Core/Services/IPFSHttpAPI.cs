@@ -649,6 +649,46 @@ public class IPFSHttpAPI
     }
     #endregion
 
+    #region 节点信息与连通性
+    /// <summary>读取本机节点 ID 与监听/公告地址；节点异常时返回 null</summary>
+    /// <param name="token">取消令牌</param>
+    public static async Task<NodeIdInfo?> GetNodeIdAsync(CancellationToken token = default)
+    {
+        var result = await DoCommandAsync(BuildCommand("id"), token);
+        var node = JsonNode.Parse(result);
+        var id = node?["ID"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(id)) return null;
+
+        var addresses = new List<string>();
+        if (node?["Addresses"] is JsonArray array)
+        {
+            foreach (var item in array)
+            {
+                var address = item?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(address)) addresses.Add(address);
+            }
+        }
+        return new NodeIdInfo(id, addresses);
+    }
+
+    /// <summary>读取当前已连接的对等节点（含地址，用于区分直连与中继）</summary>
+    /// <param name="token">取消令牌</param>
+    public static async Task<List<SwarmPeerInfo>> GetSwarmPeersAsync(CancellationToken token = default)
+    {
+        var result = await DoCommandAsync(BuildCommand("swarm/peers"), token);
+        var peers = new List<SwarmPeerInfo>();
+        if (JsonNode.Parse(result)?["Peers"] is not JsonArray array) return peers;
+
+        foreach (var item in array)
+        {
+            peers.Add(new SwarmPeerInfo(
+                item?["Peer"]?.GetValue<string>() ?? string.Empty,
+                item?["Addr"]?.GetValue<string>() ?? string.Empty));
+        }
+        return peers;
+    }
+    #endregion
+
     #region 仓库维护
     /// <summary>
     /// 执行仓库垃圾回收。kubo 的 repo/gc 返回多条 JSON 文本（每个被删除的块一行），
@@ -658,14 +698,20 @@ public class IPFSHttpAPI
     public static async Task<string> RepoGcAsync(CancellationToken token = default)
         => await DoCommandAsync(BuildCommand("repo/gc"), token);
     /// <summary>
-    /// 仓库统计：返回 RepoSize（字节）；取不到时返回 null，仅用于清理前后对比。
+    /// 仓库统计：返回已用大小、上限与对象数；取不到时返回 null。
     /// </summary>
     /// <param name="token">取消令牌</param>
-    public static async Task<long?> RepoStatAsync(CancellationToken token = default)
+    public static async Task<RepoStatInfo?> RepoStatAsync(CancellationToken token = default)
     {
         var result = await DoCommandAsync(BuildCommand("repo/stat"), token);
-        var size = JsonNode.Parse(result)?["RepoSize"];
-        return size?.GetValue<long>();
+        var node = JsonNode.Parse(result);
+        var repoSize = node?["RepoSize"]?.GetValue<long>();
+        if (repoSize == null) return null;
+
+        return new RepoStatInfo(
+            repoSize.Value,
+            node?["StorageMax"]?.GetValue<long>() ?? 0,
+            node?["NumObjects"]?.GetValue<long>() ?? 0);
     }
     #endregion
 }
@@ -952,6 +998,15 @@ public class PinFile
 {
     public List<string>? Pins { get; set; }
 }
+
+/// <summary>仓库统计：已用字节、软上限字节与对象数量</summary>
+public sealed record RepoStatInfo(long RepoSize, long StorageMax, long NumObjects);
+
+/// <summary>节点基本信息：ID 与监听/公告地址</summary>
+public sealed record NodeIdInfo(string Id, IReadOnlyList<string> Addresses);
+
+/// <summary>对等节点：节点 ID 与连接地址（含中继标记）</summary>
+public sealed record SwarmPeerInfo(string Peer, string Addr);
 #endregion
 
 

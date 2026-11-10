@@ -40,6 +40,9 @@ public partial class HomeViewModel : PageViewModelBase
     /// <summary>防止切换数据源时重复进入</summary>
     bool switchingSource;
 
+    /// <summary>数据源切换序号：每次选择递增，旧的异步结果据此丢弃，避免覆盖新选择</summary>
+    int switchVersion;
+
     /// <summary>左栏是否由窗口宽度自动收起（区别于手动收起）</summary>
     bool autoCollapsed;
 
@@ -401,6 +404,10 @@ public partial class HomeViewModel : PageViewModelBase
 
         if (item.CacheState == AlbumCacheState.RemoteCached)
         {
+            var confirmed = await Dialogs.ConfirmAsync("解除缓存",
+                $"确定解除[{item.Name}]的本地缓存？\n解除后本机将不再提供该专辑内容，其他节点可能无法从你这里获取。");
+            if (!confirmed) return;
+
             IsBusy = true;
             try
             {
@@ -449,7 +456,7 @@ public partial class HomeViewModel : PageViewModelBase
     partial void OnActiveSourceChanged(AlbumSource? value) => _ = SwitchSourceAsync(value);
 
     /// <summary>同步远程源的递归固定根 CID，并刷新当前卡片的缓存菜单</summary>
-    async Task SyncPinnedRootsAsync()
+    async Task SyncPinnedRootsAsync(int version = -1)
     {
         try
         {
@@ -465,6 +472,9 @@ public partial class HomeViewModel : PageViewModelBase
             Log.Append($"读取缓存状态失败：{ex.Message}");
         }
 
+        //切换已过期时不再回写旧列表，避免把新数据源的徽标改错
+        if (version >= 0 && version != switchVersion) return;
+
         foreach (var item in Albums)
             item.SetCached(pinnedRoots.Contains(item.Album.Hash));
     }
@@ -472,9 +482,10 @@ public partial class HomeViewModel : PageViewModelBase
     /// <summary>切换到指定数据源：本地直接读库，远程读已下载的副本</summary>
     async Task SwitchSourceAsync(AlbumSource? source)
     {
-        if (source == null || switchingSource) return;
+        if (source == null) return;
 
-        switchingSource = true;
+        //新选择立即生效：旧的异步切换结果按序号丢弃，不再阻塞用户
+        var version = ++switchVersion;
         IsBusy = true;
         try
         {
@@ -483,6 +494,7 @@ public partial class HomeViewModel : PageViewModelBase
 
             if (source.IsLocal)
             {
+                if (version != switchVersion) return;
                 RefreshAlbums();
                 Log.SetStatus($"当前数据源：本地数据（{Albums.Count} 个专辑）");
                 return;
@@ -500,32 +512,39 @@ public partial class HomeViewModel : PageViewModelBase
                     return;
                 }
 
-                Log.Append($"订阅「{sub.Name}」尚未下载，正在获取…");
-                var result = await subscriptions.UpdateAsync(sub, Log.Progress);
-                if (!result.Ok)
-                {
-                    //失败结果已由订阅服务写入日志
-                    RevertToLocal();
-                    return;
-                }
+                //不在切换流程里等待网络：先退回本地，后台下载完成后再允许切换
+                Log.Append($"订阅「{sub.Name}」尚未下载，正在后台获取，完成后可再次切换查看。");
+                RevertToLocal();
+                _ = UpdateInBackgroundAsync(sub);
+                return;
             }
 
             var dict = await subscriptions.LoadAlbumsAsync(sub);
+            if (version != switchVersion) return;
             ShowAlbums(dict.Values, canModify: false);
-            await SyncPinnedRootsAsync();
             Log.SetStatus($"当前数据源：{sub.Name}（{Albums.Count} 个专辑）");
+            await SyncPinnedRootsAsync(version);
         }
         catch (Exception ex)
         {
+            if (version != switchVersion) return;
             AppLog.Error(ex, "切换数据源失败");
             Log.Append($"切换数据源失败：{ex.Message}");
             RevertToLocal();
         }
         finally
         {
-            IsBusy = false;
-            switchingSource = false;
+            //只有最新一次切换负责结束忙碌状态
+            if (version == switchVersion) IsBusy = false;
         }
+    }
+
+    /// <summary>切换时发现订阅尚未下载：后台获取，不占用切换流程</summary>
+    async Task UpdateInBackgroundAsync(IpnsSubscription sub)
+    {
+        var (ok, _) = await subscriptions.UpdateAsync(sub, Log.Progress);
+        if (ok)
+            Log.Append($"订阅「{sub.Name}」已在后台下载完成，可切换查看。");
     }
 
     /// <summary>远程数据不可用时退回本地数据源</summary>
@@ -686,11 +705,16 @@ public partial class HomeViewModel : PageViewModelBase
 
     async Task ReloadRemoteAsync(IpnsSubscription sub)
     {
+        var version = switchVersion;
         try
         {
             var dict = await subscriptions.LoadAlbumsAsync(sub);
+            //期间用户已切换数据源：放弃本次回写
+            if (version != switchVersion) return;
+            if (ActiveSource?.Subscription is not { } active || !IsSameSource(active, sub)) return;
+
             ShowAlbums(dict.Values, canModify: false);
-            await SyncPinnedRootsAsync();
+            await SyncPinnedRootsAsync(version);
             Log.Append($"已重新加载订阅「{sub.Name}」，共 {Albums.Count} 个专辑。");
         }
         catch (Exception ex)

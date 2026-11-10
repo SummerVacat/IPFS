@@ -1,6 +1,6 @@
 # 第三方组件与许可说明
 
-本程序「IPFS 媒体库」（程序集 `IPFS.Avalonia`，版本 0.1.1）整体以 **GNU General Public License v3.0 或更高版本（GPL-3.0-or-later）** 发布，许可证全文见根目录 `LICENSE`，也可从 <https://www.gnu.org/licenses/gpl-3.0.html> 获取。
+本程序「IPFS 媒体库」（程序集 `IPFS.Avalonia`，版本 0.2.0）整体以 **GNU General Public License v3.0 或更高版本（GPL-3.0-or-later）** 发布，许可证全文见根目录 `LICENSE`，也可从 <https://www.gnu.org/licenses/gpl-3.0.html> 获取。
 
 本程序使用了以下第三方组件。各组件的版权归其各自作者所有，本程序仅在遵守其许可条款的前提下使用。
 

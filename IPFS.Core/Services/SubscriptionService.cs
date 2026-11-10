@@ -218,6 +218,8 @@ public sealed class SubscriptionService : IDisposable
                 return (true, "已是最新版本。");
             }
 
+            var managed = await LoadManagedAlbumsAsync(sub);
+
             var message = await DownloadVersionAsync(sub, cid, probe.Manifest, probe.IsFolder, progress);
             if (message != null) return Fail(sub, message);
 
@@ -230,6 +232,10 @@ public sealed class SubscriptionService : IDisposable
             sub.LastCheckedAt = NowText();
             Persist();
             log($"[{sub.Name}]已更新到 {cid}。");
+
+            //版本轮换后清理只存在于更早版本的固定项；上一版仍保留，回滚不受影响
+            await UnpinCachedAlbumsAsync(managed, quietWhenNothingRemoved: true);
+
             Updated?.Invoke(this, sub);
             return (true, $"已更新到新版本。");
         }
@@ -313,27 +319,17 @@ public sealed class SubscriptionService : IDisposable
         }
     }
 
-    /// <summary>删除目录前读取订阅库中的专辑；读不到时跳过缓存解除，不影响取消订阅</summary>
+    /// <summary>删除目录前读取当前与上一版本中的专辑，避免遗留孤立固定；读取失败只写日志</summary>
     async Task<List<Album>> LoadAlbumsForRemovalAsync(IpnsSubscription sub)
-    {
-        try
-        {
-            if (!File.Exists(sub.GetCurrentPath(rootDirectory))) return [];
-            return (await LoadAlbumsAsync(sub)).Values.ToList();
-        }
-        catch (Exception e)
-        {
-            AppLog.Error(e, "读取订阅库失败");
-            log($"读取[{sub.Name}]的专辑列表失败，本次不解除缓存：{e.Message}");
-            return [];
-        }
-    }
+        => await LoadManagedAlbumsAsync(sub);
 
     /// <summary>
-    /// 解除取消订阅后遗留的远程专辑缓存：跳过本地专辑或其他订阅仍在引用的 CID，
-    /// 未固定的跳过；单个失败只写日志，不阻断取消订阅。
+    /// 解除不再被任何数据源引用的远程专辑固定：跳过本地专辑、其他订阅当前/上一版本仍在引用的 CID，
+    /// 未固定的跳过；单个失败只写日志，不阻断调用方。
     /// </summary>
-    async Task UnpinCachedAlbumsAsync(List<Album> albums)
+    /// <param name="albums">待检查的专辑</param>
+    /// <param name="quietWhenNothingRemoved">没有实际解除时不写日志（更新流程使用）</param>
+    async Task UnpinCachedAlbumsAsync(List<Album> albums, bool quietWhenNothingRemoved = false)
     {
         if (ipfs == null || albums.Count == 0) return;
 
@@ -342,17 +338,20 @@ public sealed class SubscriptionService : IDisposable
         var sharedRoots = new HashSet<string>(StringComparer.Ordinal);
         foreach (var other in Subscriptions)
         {
-            //尚未下载的订阅没有数据库，也就不会引用任何缓存
-            if (!File.Exists(other.GetCurrentPath(rootDirectory))) continue;
-            try
+            //上一版本也要参与判断：保留它才能在不联网的情况下回滚
+            foreach (var path in new[] { other.GetCurrentPath(rootDirectory), other.GetPreviousPath(rootDirectory) })
             {
-                foreach (var album in (await LoadAlbumsAsync(other)).Values)
-                    sharedRoots.Add(album.Hash);
-            }
-            catch (Exception e)
-            {
-                AppLog.Error(e, "读取共享库失败");
-                log($"读取订阅[{other.Name}]数据库失败，无法判断共享 CID：{e.Message}");
+                if (!File.Exists(path)) continue;
+                try
+                {
+                    foreach (var album in (await LoadAlbumsFromPathAsync(path)).Values)
+                        sharedRoots.Add(album.Hash);
+                }
+                catch (Exception e)
+                {
+                    AppLog.Error(e, "读取共享库失败");
+                    log($"读取订阅[{other.Name}]数据库失败，无法判断共享 CID：{e.Message}");
+                }
             }
         }
 
@@ -388,7 +387,7 @@ public sealed class SubscriptionService : IDisposable
                 removed++;
         }
 
-        if (removed == 0 && retained == 0) return;
+        if (removed == 0 && (retained == 0 || quietWhenNothingRemoved)) return;
         var message = $"已解除 {removed} 个专辑的缓存固定（空间将在设置页清理仓库时释放）";
         if (retained > 0) message += $"，{retained} 个因被其他数据源引用而保留";
         log(message + "。");
@@ -408,6 +407,20 @@ public sealed class SubscriptionService : IDisposable
         if (!File.Exists(path))
             throw new FileNotFoundException("订阅数据库不存在，请先更新。");
 
+        return await LoadAlbumsFromPathAsync(path);
+    }
+
+    /// <summary>只读加载上一版本数据库中的专辑；没有备份时返回空集合</summary>
+    public async Task<ConcurrentDictionary<string, Album>> LoadPreviousAlbumsAsync(IpnsSubscription sub)
+    {
+        var path = sub.GetPreviousPath(rootDirectory);
+        return File.Exists(path)
+            ? await LoadAlbumsFromPathAsync(path)
+            : new ConcurrentDictionary<string, Album>();
+    }
+
+    async Task<ConcurrentDictionary<string, Album>> LoadAlbumsFromPathAsync(string path)
+    {
         var result = new ConcurrentDictionary<string, Album>();
         var connection = new SQLiteAsyncConnection(path, SQLiteOpenFlags.ReadOnly);
         try
@@ -421,6 +434,30 @@ public sealed class SubscriptionService : IDisposable
             await connection.CloseAsync();
         }
         return result;
+    }
+
+    /// <summary>
+    /// 读取更新前本订阅当前与上一版本中的专辑，用于轮换后判断哪些固定项已无人引用。
+    /// 单个库读取失败只写日志，不阻断更新。
+    /// </summary>
+    async Task<List<Album>> LoadManagedAlbumsAsync(IpnsSubscription sub)
+    {
+        var albums = new Dictionary<string, Album>(StringComparer.Ordinal);
+        foreach (var path in new[] { sub.GetCurrentPath(rootDirectory), sub.GetPreviousPath(rootDirectory) })
+        {
+            if (!File.Exists(path)) continue;
+            try
+            {
+                foreach (var album in (await LoadAlbumsFromPathAsync(path)).Values)
+                    albums[album.Hash] = album;
+            }
+            catch (Exception e)
+            {
+                AppLog.Error(e, "读取旧版本订阅库失败");
+                log($"读取[{sub.Name}]旧版本数据库失败，本次不解除历史固定：{e.Message}");
+            }
+        }
+        return albums.Values.ToList();
     }
 
     #endregion

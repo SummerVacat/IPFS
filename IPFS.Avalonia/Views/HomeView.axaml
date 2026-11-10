@@ -44,6 +44,13 @@
                                                FontSize="40" Opacity="0.35"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center" />
+                                    <Border IsVisible="{Binding IsCached}"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                                            Margin="6" Padding="5,1" CornerRadius="3"
+                                            Background="{DynamicResource CardBusyOverlayBrush}">
+                                        <TextBlock Text="已缓存" FontSize="10"
+                                                   Foreground="{DynamicResource MediaOverlayForegroundBrush}" />
+                                    </Border>
                                 </Panel>
                             </Border>
                             <StackPanel Grid.Row="1" Margin="10,6" Spacing="2">
@@ -95,8 +102,16 @@
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding Date}" FontSize="11" Opacity="0.65" />
                             </StackPanel>
-                            <TextBlock Grid.Column="2" Text="{Binding FileCountText}"
-                                       FontSize="11" Opacity="0.65" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="2" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding FileCountText}"
+                                           FontSize="11" Opacity="0.65" HorizontalAlignment="Right" />
+                                <Border IsVisible="{Binding IsCached}"
+                                        HorizontalAlignment="Right" Padding="5,1" CornerRadius="3"
+                                        Background="{DynamicResource CardBusyOverlayBrush}">
+                                    <TextBlock Text="已缓存" FontSize="10"
+                                               Foreground="{DynamicResource MediaOverlayForegroundBrush}" />
+                                </Border>
+                            </StackPanel>
                         </Grid>
                         <Border IsVisible="{Binding IsCacheBusy}"
                                 Background="{DynamicResource CardBusyOverlayBrush}"

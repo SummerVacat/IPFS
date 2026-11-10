@@ -184,7 +184,7 @@ public partial class IPFSService : IDisposable
             acquired = true;
             progress?.Report($"正在缓存[{album.Name}]…");
             await IPFSHttpAPI.PinAddAsync(album.Hash, "recursive", token);
-            progress?.Report($"已缓存[{album.Name}]，可离线浏览。");
+            progress?.Report($"已缓存[{album.Name}]，可离线浏览；本机已开始作为提供者分享该专辑。");
             return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -223,7 +223,7 @@ public partial class IPFSService : IDisposable
         try
         {
             await IPFSHttpAPI.PinRemoveAsync(album.Hash);
-            progress?.Report($"已解除[{album.Name}]的缓存固定；磁盘空间将在设置页清理仓库时释放。");
+            progress?.Report($"已解除[{album.Name}]的缓存固定，本机不再提供该专辑内容；磁盘空间将在设置页清理仓库时释放。");
             return true;
         }
         catch (HttpRequestException e) when (e.Message.Contains("not pinned", StringComparison.OrdinalIgnoreCase))
@@ -264,9 +264,9 @@ public partial class IPFSService : IDisposable
             var after = await TryGetRepoSizeAsync(token);
 
             if (before != null && after != null && before - after > 0)
-                progress?.Report($"已清理未固定数据，释放约 {FormatSize(before.Value - after.Value)}。");
+                progress?.Report($"已清理未固定数据，释放约 {FormatSize(before.Value - after.Value)}；被清理的内容本机不再提供。");
             else
-                progress?.Report("未固定数据清理完成。");
+                progress?.Report("未固定数据清理完成；被清理的内容本机不再提供。");
             return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -290,7 +290,7 @@ public partial class IPFSService : IDisposable
     {
         try
         {
-            return await IPFSHttpAPI.RepoStatAsync(token);
+            return (await IPFSHttpAPI.RepoStatAsync(token))?.RepoSize;
         }
         catch (Exception e)
         {

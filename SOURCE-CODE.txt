@@ -1,9 +1,9 @@
 对应源码获取说明
 
-本程序「IPFS 媒体库」（IPFS.Avalonia，版本 0.1.1）以 GNU General Public License
+本程序「IPFS 媒体库」（IPFS.Avalonia，版本 0.2.0）以 GNU General Public License
 v3.0 或更高版本（GPL-3.0-or-later）发布。
 
-对应源码（Corresponding Source）以 IPFS.Avalonia-0.1.1-src.zip 的形式，与本程序的
+对应源码（Corresponding Source）以 IPFS.Avalonia-0.2.0-src.zip 的形式，与本程序的
 发布文件一同提供，位于同一发布目录下。
 
 源码包内容包括：
@@ -15,4 +15,4 @@ v3.0 或更高版本（GPL-3.0-or-later）发布。
 第三方组件（含 libvlc）的源码获取地址，见 THIRD-PARTY-NOTICES.md。
 本程序以未修改的动态库形式使用 libvlc，用户可自行替换 libvlc/win-x64 下的动态库文件。
 
-发布日期：2026-11-09
+发布日期：2026-11-10

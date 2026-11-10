@@ -1,5 +1,7 @@
 ﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,6 +12,18 @@ namespace IPFS.ViewModels;
 
 /// <summary>定时更新间隔选项</summary>
 public sealed record AutoUpdateOption(int Minutes, string Text);
+
+/// <summary>本机正在固定的专辑：名称、来源（本地/订阅）与根 CID</summary>
+public sealed record SharedAlbumItem(string Name, string Source, string Cid)
+{
+    public string CidShort => Cid.Length <= 16 ? Cid : Cid[..12] + "…";
+}
+
+/// <summary>不属于任何本地专辑或订阅的递归固定项（通常是远端已删除专辑留下的孤立 pin）</summary>
+/// <param name="Cid">根 CID</param>
+/// <param name="SizeText">格式化后的占用大小</param>
+/// <param name="Hint">内容线索：首项名称及条目数</param>
+public sealed record OrphanPinItem(string Cid, string SizeText, string Hint);
 
 /// <summary>
 /// 设置页视图模型：管理 API/网关/数据库位置、数据仓库名称、IPNS 订阅与定时更新，
@@ -185,8 +199,9 @@ public partial class SettingsViewModel : PageViewModelBase
         Subscriptions.CollectionChanged += (_, _) => UpdateAllSubscriptionsCommand.NotifyCanExecuteChanged();
     }
 
-    /// <summary>进入页面时自动加载一次 IPNS 列表</summary>
-    public override Task InitializeAsync() => RefreshIpnsAsync();
+    /// <summary>进入页面时自动加载 IPNS 列表与本机分享状态</summary>
+    public override async Task InitializeAsync()
+        => await Task.WhenAll(RefreshIpnsAsync(), RefreshShareStatusAsync());
 
     #region IPNS 密钥命令
 
@@ -434,11 +449,14 @@ public partial class SettingsViewModel : PageViewModelBase
     {
         if (sub == null || IsSubscribing) return;
         var confirmed = await Dialogs.ConfirmAsync("取消订阅",
-            $"确定取消订阅[{sub.Name}]？\n本地已下载的数据库与备份将被删除。\n\n{sub.SourceLabel}：{sub.IpnsId}");
+            $"确定取消订阅[{sub.Name}]？\n本地已下载的数据库与备份将被删除。\n" +
+            "取消后本机将不再为这些专辑提供内容；被其他订阅或本地数据引用的专辑会保留。\n\n" +
+            $"{sub.SourceLabel}：{sub.IpnsId}");
         if (!confirmed) return;
 
         await subscriptions.RemoveAsync(sub);
         SubscriptionMessage = $"已取消订阅[{sub.Name}]。";
+        await RefreshShareStatusAsync();
     }
 
     /// <summary>复制订阅的 IPNS 标识或快照 CID</summary>
@@ -507,25 +525,353 @@ public partial class SettingsViewModel : PageViewModelBase
     {
         var confirmed = await Dialogs.ConfirmAsync("清理未固定数据",
             "将删除仓库中所有未固定的数据块，包括预览缓存和已解除固定的远程专辑缓存。" +
-            "已固定的本地专辑不会受影响。清理可能耗时，期间请勿关闭程序。是否继续？");
+            "已固定的本地专辑不会受影响。清理后这些内容本机不再提供，除非重新缓存。" +
+            "清理可能耗时，期间请勿关闭程序。是否继续？");
         if (!confirmed) return;
 
         IsCleaning = true;
         RepoMessage = "正在清理未固定数据…";
+        var succeeded = false;
         try
         {
             Log.SetStatus("正在清理未固定数据…");
-            RepoMessage = (await ipfs.CleanupRepositoryAsync(Log.Progress))
-                ? "清理完成，详见运行日志。"
-                : "清理失败，详见运行日志。";
+            succeeded = await ipfs.CleanupRepositoryAsync(Log.Progress);
+            RepoMessage = succeeded ? "清理完成，详见运行日志。" : "清理失败，详见运行日志。";
         }
         finally
         {
             IsCleaning = false;
         }
+
+        if (succeeded) await RefreshShareStatusAsync();
     }
 
     bool CanCleanupRepo() => !IsCleaning;
+
+    #endregion
+
+    #region 分享与连通性
+
+    /// <summary>连通性查询的超时时间，避免节点无响应时一直等待</summary>
+    static readonly TimeSpan ShareStatusTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>本机已固定的专辑（供分享清单展示）</summary>
+    public ObservableCollection<SharedAlbumItem> SharedAlbums { get; } = [];
+
+    [ObservableProperty]
+    private bool hasSharedAlbums;
+
+    /// <summary>可手动解除的孤立固定项</summary>
+    public ObservableCollection<OrphanPinItem> OrphanPins { get; } = [];
+
+    [ObservableProperty]
+    private bool hasOrphanPins;
+
+    /// <summary>固定汇总：总数、本地/缓存数量与其他固定项</summary>
+    [ObservableProperty]
+    private string sharedSummary = "尚未查询";
+
+    /// <summary>仓库已用容量与上限</summary>
+    [ObservableProperty]
+    private string repoSummary = string.Empty;
+
+    [ObservableProperty]
+    private string nodeIdText = "尚未查询";
+
+    /// <summary>对等连接数与直连/中继拆分</summary>
+    [ObservableProperty]
+    private string peerSummary = string.Empty;
+
+    /// <summary>可达性结论（只读展示，不改变配置）</summary>
+    [ObservableProperty]
+    private string networkSummary = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshShareStatusCommand))]
+    private bool isRefreshingStatus;
+
+    [ObservableProperty]
+    private string shareStatusMessage = string.Empty;
+
+    /// <summary>刷新本机分享清单与网络连通性</summary>
+    [RelayCommand(CanExecute = nameof(CanRefreshShareStatus))]
+    async Task RefreshShareStatusAsync()
+    {
+        IsRefreshingStatus = true;
+        ShareStatusMessage = "正在读取本机分享状态…";
+        try
+        {
+            await LoadSharedAlbumsAsync();
+            await LoadConnectivityAsync();
+            ShareStatusMessage = "已更新。";
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "读取分享状态失败");
+            ShareStatusMessage = $"读取失败：{e.Message}";
+        }
+        finally
+        {
+            IsRefreshingStatus = false;
+        }
+    }
+
+    bool CanRefreshShareStatus() => !IsRefreshingStatus;
+
+    /// <summary>复制节点 ID；尚未查询或查询失败时不写入剪贴板</summary>
+    [RelayCommand]
+    async Task CopyNodeIdAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NodeIdText) || NodeIdText.StartsWith('尚') || NodeIdText.StartsWith('（')) return;
+        await Dialogs.CopyToClipboardAsync(NodeIdText);
+        ShareStatusMessage = "已复制节点 ID。";
+    }
+
+    /// <summary>手动解除孤立固定项；只解除固定，空间在清理仓库后释放</summary>
+    [RelayCommand]
+    async Task UnpinOrphanAsync(OrphanPinItem? item)
+    {
+        if (item == null) return;
+
+        var confirmed = await Dialogs.ConfirmAsync("解除固定",
+            $"确定解除以下固定项？\n{item.Cid}\n\n" +
+            "解除后本机将不再长期提供该内容，磁盘空间需在「清理未固定数据」后释放。");
+        if (!confirmed) return;
+
+        try
+        {
+            await IPFSHttpAPI.PinRemoveAsync(item.Cid);
+            OrphanPins.Remove(item);
+            HasOrphanPins = OrphanPins.Count > 0;
+            ShareStatusMessage = "已解除固定，可在清理仓库后释放空间。";
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "解除固定项失败");
+            ShareStatusMessage = $"解除失败：{e.Message}";
+        }
+    }
+
+    /// <summary>读取 CID 根目录结构；非目录、块缺失或节点拒绝时返回 null（不提供解除入口）</summary>
+    static async Task<FolderData?> ReadFolderAsync(string cid)
+    {
+        try
+        {
+            //用 ls 读根目录，而不是 cat 子文件：缺少 manifest.json 时 cat 会返回 500，无法区分原因
+            return await IPFSHttpAPI.GetFolderAsync(cid, "15s");
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "判断固定项类型失败");
+            return null;
+        }
+    }
+
+    /// <summary>汇总本地与全部订阅中仍处于递归固定的专辑</summary>
+    async Task LoadSharedAlbumsAsync()
+    {
+        var pins = await IPFSHttpAPI.RecursivePinSetAsync();
+
+        //按 CID 汇总来源：同一专辑可能同时来自本地和多个订阅
+        var sources = new Dictionary<string, (string Name, List<string> From)>(StringComparer.Ordinal);
+        void Add(Album album, string from)
+        {
+            if (string.IsNullOrWhiteSpace(album.Hash) || !pins.Contains(album.Hash)) return;
+            if (!sources.TryGetValue(album.Hash, out var entry))
+                sources[album.Hash] = entry = (album.Name, []);
+            if (!entry.From.Contains(from)) entry.From.Add(from);
+        }
+
+        foreach (var album in ipfs.AlbumDict.Values)
+            Add(album, "本地");
+
+        //数据库根 CID 也是固定项，但不属于任何专辑，不能出现在可解除列表里
+        var knownRoots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var album in ipfs.AlbumDict.Values)
+            if (!string.IsNullOrWhiteSpace(album.Hash)) knownRoots.Add(album.Hash);
+
+        foreach (var sub in subscriptions.Subscriptions.ToList())
+        {
+            if (!string.IsNullOrWhiteSpace(sub.LastCid)) knownRoots.Add(sub.LastCid);
+            if (!string.IsNullOrWhiteSpace(sub.PreviousCid)) knownRoots.Add(sub.PreviousCid);
+
+            if (File.Exists(sub.GetCurrentPath(subscriptions.RootDirectory)))
+            {
+                try
+                {
+                    foreach (var album in (await subscriptions.LoadAlbumsAsync(sub)).Values)
+                    {
+                        knownRoots.Add(album.Hash);
+                        Add(album, sub.Name);
+                    }
+                }
+                catch (Exception e)
+                {
+                    //单个订阅库损坏不影响其他来源的统计
+                    AppLog.Error(e, $"读取订阅[{sub.Name}]失败");
+                }
+            }
+
+            try
+            {
+                //上一版本中的专辑同样处于固定状态，也计入分享清单
+                foreach (var album in (await subscriptions.LoadPreviousAlbumsAsync(sub)).Values)
+                {
+                    knownRoots.Add(album.Hash);
+                    Add(album, sub.Name + "（上一版）");
+                }
+            }
+            catch (Exception e)
+            {
+                AppLog.Error(e, $"读取订阅[{sub.Name}]上一版本失败");
+            }
+        }
+
+        SharedAlbums.Clear();
+        foreach (var (cid, entry) in sources
+                     .OrderBy(x => x.Value.From.Contains("本地") ? 0 : 1)
+                     .ThenBy(x => x.Value.Name, StringComparer.CurrentCulture))
+            SharedAlbums.Add(new SharedAlbumItem(entry.Name, string.Join("、", entry.From), cid));
+
+        var local = sources.Count(x => x.Value.From.Contains("本地"));
+        var cached = sources.Count - local;
+        HasSharedAlbums = SharedAlbums.Count > 0;
+
+        //剩余固定项：排除专辑与数据库根后，可能是远端已删除专辑留下的孤立 pin
+        OrphanPins.Clear();
+        foreach (var cid in pins.Where(cid => !knownRoots.Contains(cid)).Order(StringComparer.Ordinal))
+        {
+            var folder = await ReadFolderAsync(cid);
+            if (folder == null) continue;
+            if (folder.Files.Any(file =>
+                    string.Equals(file.Name, DatabaseManifest.FileName, StringComparison.Ordinal)))
+                continue;
+
+            var names = folder.Files.Select(file => file.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+            var hint = names.Count switch
+            {
+                0 => "空目录",
+                1 => names[0],
+                _ => $"{names[0]} 等 {names.Count} 项"
+            };
+            OrphanPins.Add(new OrphanPinItem(cid, FormatSize(folder.Files.Sum(file => file.Size)), hint));
+        }
+        HasOrphanPins = OrphanPins.Count > 0;
+
+        SharedSummary = $"已固定 {sources.Count} 个专辑（本地 {local} / 缓存 {cached}）" +
+                        (OrphanPins.Count > 0 ? $" · 其他固定项 {OrphanPins.Count} 个" : string.Empty);
+
+        try
+        {
+            var stat = await IPFSHttpAPI.RepoStatAsync();
+            RepoSummary = stat == null || stat.StorageMax <= 0
+                ? string.Empty
+                : $"仓库 {FormatSize(stat.RepoSize)} / {FormatSize(stat.StorageMax)}（{stat.RepoSize * 100.0 / stat.StorageMax:F1}%）";
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "读取仓库容量失败");
+            RepoSummary = string.Empty;
+        }
+    }
+
+    /// <summary>读取节点 ID、对等连接与公网地址，生成只读结论</summary>
+    async Task LoadConnectivityAsync()
+    {
+        using var cts = new CancellationTokenSource(ShareStatusTimeout);
+        try
+        {
+            var node = await IPFSHttpAPI.GetNodeIdAsync(cts.Token);
+            if (node == null)
+            {
+                NodeIdText = "（节点未返回 ID）";
+                PeerSummary = string.Empty;
+                NetworkSummary = "无法读取节点信息，请检查节点是否运行。";
+                return;
+            }
+
+            NodeIdText = node.Id;
+            var hasPublic = node.Addresses.Any(IsPublicMultiaddr);
+
+            var peers = await IPFSHttpAPI.GetSwarmPeersAsync(cts.Token);
+            var relayed = peers.Count(p => p.Addr.Contains("/p2p-circuit", StringComparison.OrdinalIgnoreCase));
+            var direct = peers.Count - relayed;
+            PeerSummary = $"连接 {peers.Count} 个（直连 {direct} / 中继 {relayed}）";
+
+            var lines = new List<string>
+            {
+                hasPublic ? "检测到公网地址，其他节点可直接连接。" : "未检测到公网地址，本机可能位于 NAT 后。"
+            };
+            if (peers.Count == 0)
+                lines.Add("当前无对等连接，可能无法获取或提供内容。");
+            else if (relayed > 0)
+                lines.Add($"其中 {relayed} 个经中继，吞吐可能受限。");
+            NetworkSummary = string.Join(" ", lines);
+        }
+        catch (OperationCanceledException)
+        {
+            PeerSummary = string.Empty;
+            NetworkSummary = "查询超时：节点响应过慢或未运行。";
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "读取网络连通性失败");
+            PeerSummary = string.Empty;
+            NetworkSummary = $"查询失败：{e.Message}";
+        }
+    }
+
+    /// <summary>多地址中是否存在非私有 IP（中继地址不算公网）</summary>
+    static bool IsPublicMultiaddr(string address)
+    {
+        if (address.Contains("/p2p-circuit", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var parts = address.Split('/');
+        for (var i = 0; i + 1 < parts.Length; i++)
+        {
+            if (parts[i] is "ip4" or "ip6")
+                return !IsPrivateAddress(parts[i + 1]);
+        }
+        return false;
+    }
+
+    /// <summary>回环、私有网段、链路本地与 CGNAT 均按非公网处理</summary>
+    static bool IsPrivateAddress(string value)
+    {
+        if (!IPAddress.TryParse(value, out var ip)) return true;
+        if (IPAddress.IsLoopback(ip)) return true;
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            return b[0] == 0
+                || b[0] == 10
+                || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
+                || (b[0] == 192 && b[1] == 168)
+                || (b[0] == 169 && b[1] == 254)
+                || (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal) return true;
+            var b = ip.GetAddressBytes();
+            return (b[0] & 0xFE) == 0xFC;// fc00::/7
+        }
+
+        return true;
+    }
+
+    static string FormatSize(long bytes) => bytes >= 1024L * 1024 * 1024
+        ? $"{bytes / 1024.0 / 1024.0 / 1024.0:F1} GB"
+        : bytes >= 1024 * 1024
+            ? $"{bytes / 1024.0 / 1024.0:F1} MB"
+            : $"{bytes / 1024.0:F0} KB";
 
     #endregion
 

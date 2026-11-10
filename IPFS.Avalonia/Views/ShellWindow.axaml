@@ -82,20 +82,7 @@
                     <PathIcon Data="{StaticResource IconRefresh}" Width="15" Height="15" />
                 </Button>
 
-                <!-- 主题切换：放在刷新按钮之后，仅首页显示 -->
                 <Button Grid.Column="5" Margin="6,0,0,0"
-                        Command="{Binding ToggleThemeCommand}" IsVisible="{Binding IsHomePage}"
-                        Width="26" Height="24" Padding="0" VerticalAlignment="Center"
-                        ToolTip.Tip="切换深色/浅色模式" AutomationProperties.Name="切换主题">
-                    <Panel>
-                        <PathIcon Data="{StaticResource IconMoon}" Width="15" Height="15"
-                                  IsVisible="{Binding !IsDarkMode}" />
-                        <PathIcon Data="{StaticResource IconSun}" Width="15" Height="15"
-                                  IsVisible="{Binding IsDarkMode}" />
-                    </Panel>
-                </Button>
-
-                <Button Grid.Column="6" Margin="6,0,0,0"
                         Command="{Binding Home.ToggleViewCommand}" IsVisible="{Binding IsHomePage}"
                         Width="26" Height="24" Padding="0" VerticalAlignment="Center"
                         ToolTip.Tip="{Binding Home.ViewModeText}"
@@ -107,6 +94,19 @@
                                   IsVisible="{Binding !Home.IsGridView}" />
                     </Panel>
                 </Button>
+
+				<!-- 主题切换：放在刷新按钮之后，仅首页显示 -->
+				<Button Grid.Column="6" Margin="6,0,0,0"
+                        Command="{Binding ToggleThemeCommand}" IsVisible="{Binding IsHomePage}"
+                        Width="26" Height="24" Padding="0" VerticalAlignment="Center"
+                        ToolTip.Tip="切换深色/浅色模式" AutomationProperties.Name="切换主题">
+					<Panel>
+						<PathIcon Data="{StaticResource IconMoon}" Width="15" Height="15"
+                                  IsVisible="{Binding !IsDarkMode}" />
+						<PathIcon Data="{StaticResource IconSun}" Width="15" Height="15"
+                                  IsVisible="{Binding IsDarkMode}" />
+					</Panel>
+				</Button>
 
                 <Button Grid.Column="7" Margin="6,0,0,0"
                         Command="{Binding ShowSettingsCommand}" IsVisible="{Binding !IsSettingsPage}"
