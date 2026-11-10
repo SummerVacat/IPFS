@@ -1,12 +1,14 @@
 ﻿using SQLite;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 
 namespace IPFS;
 
 /// <summary>
-/// IPNS 订阅管理：解析标识、下载并校验远端数据库、维护 current/previous 双版本、回滚与只读加载。
+/// 订阅管理：解析 IPNS 或 CID、下载并校验远端数据库、维护 current/previous 双版本、回滚与只读加载。
+/// IPNS 订阅跟随发布者更新；CID 快照固定为订阅时的版本。
 /// 所有网络与文件操作都串行执行，避免同时改写同一订阅目录。
 /// </summary>
 public sealed class SubscriptionService : IDisposable
@@ -15,6 +17,15 @@ public sealed class SubscriptionService : IDisposable
 
     /// <summary>当前代码支持的 manifest schema 版本</summary>
     public const int SupportedSchema = DatabaseManifest.CurrentSchema;
+
+    /// <summary>CIDv0（Qm 开头的 base58）</summary>
+    static readonly Regex CidV0Pattern = new("^Qm[1-9A-HJ-NP-Za-km-z]{44}$", RegexOptions.Compiled);
+
+    /// <summary>CIDv1（b 开头的 base32，dag-pb/raw 通常以 baf 开头）</summary>
+    static readonly Regex CidV1Base32Pattern = new("^baf[a-z2-7]{15,}$", RegexOptions.Compiled);
+
+    /// <summary>CIDv1（k 开头的 base36 内容 CID 通常以 k2 开头；k51 是 IPNS 密钥，不算 CID）</summary>
+    static readonly Regex CidV1Base36Pattern = new("^k2[a-z0-9]{15,}$", RegexOptions.Compiled);
 
     readonly SemaphoreSlim sync = new(1, 1);
     readonly string rootDirectory;
@@ -91,44 +102,59 @@ public sealed class SubscriptionService : IDisposable
 
     #region 添加/更新/回滚
 
-    /// <summary>订阅一个 IPNS：解析 → 校验 manifest → 下载数据库 → 落盘并保存配置</summary>
-    public async Task<(bool Ok, string Message)> SubscribeAsync(
-        string input,
-        string? alias,
-        IProgress<string>? progress = null)
+    /// <summary>
+    /// 添加订阅：IPNS 先解析再下载；CID 直接按快照校验并下载。
+    /// 快照要求远端是含 manifest.json 的目录，避免把普通文件或其他数据误当成订阅库。
+    /// </summary>
+    public async Task<(bool Ok, string Message)> SubscribeAsync(string input, string? alias, IProgress<string>? progress = null)
     {
         await sync.WaitAsync();
         try
         {
-            var ipnsId = await NormalizeInputAsync(input);
-            if (string.IsNullOrWhiteSpace(ipnsId))
-                return Reject("请输入有效的 IPNS 名称或地址。");
-            if (Subscriptions.Any(s => string.Equals(s.IpnsId, ipnsId, StringComparison.OrdinalIgnoreCase)))
-                return Reject("该 IPNS 已订阅。");
+            var parsed = await ParseInputAsync(input);
+            if (parsed.Error != null)
+                return Reject(parsed.Error);
 
-            var cid = await ResolveAsync(ipnsId);
-            if (string.IsNullOrWhiteSpace(cid))
-                return Reject("IPNS 无法解析，请检查名称或节点状态。");
+            var kind = parsed.Kind;
+            var id = parsed.Id;
+            if (Subscriptions.Any(s =>
+                    s.Kind == kind && string.Equals(s.IpnsId, id, StringComparison.OrdinalIgnoreCase)))
+                return Reject(kind == SubscriptionKind.Cid ? "该 CID 已订阅。" : "该 IPNS 已订阅。");
 
-            progress?.Report($"正在读取[{ipnsId}]的 manifest…");
-            var (manifest, isFolder) = await FetchManifestAsync(cid);
-            if (isFolder && manifest == null)
-                return Reject("远端 manifest 无效，已取消订阅。");
-            if (manifest != null && manifest.Schema != SupportedSchema)
-                return Reject($"远端数据版本 {manifest.Schema} 不受支持（当前支持 {SupportedSchema}）。");
+            var cid = id;
+            if (kind == SubscriptionKind.Ipns)
+            {
+                cid = await ResolveAsync(id);
+                if (string.IsNullOrWhiteSpace(cid))
+                    return Reject("IPNS 无法解析，请检查名称或节点状态。");
+            }
+
+            progress?.Report($"正在读取[{id}]的 manifest…");
+            var probe = await FetchManifestAsync(cid, strict: kind == SubscriptionKind.Cid);
+            if (probe.Error != null)
+                return Reject(probe.Error);
+            if (kind == SubscriptionKind.Cid && probe.Manifest == null)
+                return Reject("该 CID 不是有效的快照库（缺少 manifest.json）。");
+            if (probe.Manifest != null && probe.Manifest.Schema != SupportedSchema)
+                return Reject($"远端数据版本 {probe.Manifest.Schema} 不受支持（当前支持 {SupportedSchema}）。");
 
             var sub = new IpnsSubscription
             {
-                IpnsId = ipnsId,
+                Kind = kind,
+                IpnsId = id,
                 Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim(),
-                RepositoryName = manifest?.Name,
-                Schema = manifest?.Schema ?? SupportedSchema,
+                RepositoryName = probe.Manifest?.Name,
+                Schema = probe.Manifest?.Schema ?? SupportedSchema,
                 PreviousCid = null
             };
             sub.RefreshName();
 
-            var message = await DownloadVersionAsync(sub, cid, manifest, isFolder, progress);
-            if (message != null) return Reject(message);
+            var message = await DownloadVersionAsync(sub, cid, probe.Manifest, probe.IsFolder, progress);
+            if (message != null)
+            {
+                CleanupEmptyDirectory(sub);
+                return Reject(message);
+            }
 
             sub.LastCid = cid;
             sub.Status = IpnsSubscription.StatusSuccess;
@@ -155,11 +181,17 @@ public sealed class SubscriptionService : IDisposable
         }
     }
 
-    /// <summary>更新一个订阅：CID 未变化时只刷新检查时间，变化时下载并轮换版本</summary>
+    /// <summary>更新一个订阅：CID 未变化时只刷新检查时间，变化时下载并轮换版本；快照不跟随更新</summary>
     public async Task<(bool Ok, string Message)> UpdateAsync(
         IpnsSubscription sub,
         IProgress<string>? progress = null)
     {
+        if (sub.IsSnapshot)
+        {
+            log($"[{sub.Name}]是快照订阅，不会自动更新。");
+            return (false, "快照订阅不跟随更新，如需新版本请重新订阅新的 CID。");
+        }
+
         await sync.WaitAsync();
         try
         {
@@ -167,30 +199,32 @@ public sealed class SubscriptionService : IDisposable
             if (string.IsNullOrWhiteSpace(cid))
                 return Fail(sub, "IPNS 无法解析，请检查名称或节点状态。");
 
-            var (manifest, isFolder) = await FetchManifestAsync(cid);
-            if (isFolder && manifest == null)
+            var probe = await FetchManifestAsync(cid, strict: false);
+            if (probe.Error != null)
+                return Fail(sub, probe.Error);
+            if (probe.IsFolder && probe.Manifest == null)
                 return Fail(sub, "远端 manifest 无效。");
-            if (manifest != null && manifest.Schema != SupportedSchema)
-                return Fail(sub, $"远端数据版本 {manifest.Schema} 不受支持（当前支持 {SupportedSchema}）。");
+            if (probe.Manifest != null && probe.Manifest.Schema != SupportedSchema)
+                return Fail(sub, $"远端数据版本 {probe.Manifest.Schema} 不受支持（当前支持 {SupportedSchema}）。");
 
             if (string.Equals(cid, sub.LastCid, StringComparison.Ordinal))
             {
                 sub.Status = IpnsSubscription.StatusUpToDate;
                 sub.LastCheckedAt = NowText();
-                sub.RepositoryName = manifest?.Name ?? sub.RepositoryName;
+                sub.RepositoryName = probe.Manifest?.Name ?? sub.RepositoryName;
                 sub.RefreshName();
                 Persist();
                 log($"[{sub.Name}]已是最新版本。");
                 return (true, "已是最新版本。");
             }
 
-            var message = await DownloadVersionAsync(sub, cid, manifest, isFolder, progress);
+            var message = await DownloadVersionAsync(sub, cid, probe.Manifest, probe.IsFolder, progress);
             if (message != null) return Fail(sub, message);
 
             sub.PreviousCid = sub.LastCid;
             sub.LastCid = cid;
-            sub.Schema = manifest?.Schema ?? sub.Schema;
-            sub.RepositoryName = manifest?.Name ?? sub.RepositoryName;
+            sub.Schema = probe.Manifest?.Schema ?? sub.Schema;
+            sub.RepositoryName = probe.Manifest?.Name ?? sub.RepositoryName;
             sub.RefreshName();
             sub.Status = IpnsSubscription.StatusSuccess;
             sub.LastCheckedAt = NowText();
@@ -210,9 +244,12 @@ public sealed class SubscriptionService : IDisposable
         }
     }
 
-    /// <summary>在 current.db 与 previous.db 之间切换，用于"恢复到上一版本"</summary>
+    /// <summary>在 current.db 与 previous.db 之间切换，用于"恢复到上一版本"；快照没有上一版本</summary>
     public async Task<(bool Ok, string Message)> RestorePreviousAsync(IpnsSubscription sub)
     {
+        if (sub.IsSnapshot)
+            return FailRestore(sub, "快照订阅只有单个版本，不支持恢复。");
+
         await sync.WaitAsync();
         try
         {
@@ -390,27 +427,83 @@ public sealed class SubscriptionService : IDisposable
 
     #region 解析与下载
 
-    /// <summary>输入规范化：去空白、去 /ipns/ 前缀，本机密钥别名映射为密钥 Id</summary>
-    async Task<string> NormalizeInputAsync(string input)
+    /// <summary>
+    /// 解析订阅输入：支持裸 IPNS/CID、/ipns/、/ipfs/、ipns://、ipfs:// 以及网关 URL。
+    /// 裸输入先按 CID 形态判断，其余一律按 IPNS 处理（含 k51 密钥、节点 ID 与 DNSLink 域名）。
+    /// </summary>
+    async Task<ParsedSubscription> ParseInputAsync(string input)
     {
         var value = input.Trim();
-        if (value.StartsWith("/ipns/", StringComparison.OrdinalIgnoreCase))
-            value = value[6..];
-        value = value.Trim('/');
-        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        if (value.Length == 0)
+            return new(SubscriptionKind.Ipns, string.Empty, "请输入 IPNS 名称/地址或库 CID。");
 
+        value = StripGatewayPrefix(value);
+        if (value.StartsWith("/ipfs/", StringComparison.OrdinalIgnoreCase))
+        {
+            var cid = FirstSegment(value[6..]);
+            return LooksLikeCid(cid)
+                ? new(SubscriptionKind.Cid, cid, null)
+                : new(SubscriptionKind.Cid, cid, "CID 格式不正确，请检查后重试。");
+        }
+
+        if (value.StartsWith("/ipns/", StringComparison.OrdinalIgnoreCase))
+            value = FirstSegment(value[6..]);
+        else
+        {
+            value = FirstSegment(value.Trim('/'));
+            if (LooksLikeCid(value))
+                return new(SubscriptionKind.Cid, value, null);
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+            return new(SubscriptionKind.Ipns, string.Empty, "请输入 IPNS 名称/地址或库 CID。");
+
+        return await NormalizeIpnsAsync(value);
+    }
+
+    /// <summary>把 ipfs://、ipns:// 与网关 URL 统一成 /ipfs/、/ipns/ 前缀形式</summary>
+    static string StripGatewayPrefix(string value)
+    {
+        if (value.StartsWith("ipfs://", StringComparison.OrdinalIgnoreCase))
+            return "/ipfs/" + value[7..];
+        if (value.StartsWith("ipns://", StringComparison.OrdinalIgnoreCase))
+            return "/ipns/" + value[7..];
+
+        foreach (var marker in (string[])["/ipfs/", "/ipns/"])
+        {
+            var index = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0) return value[index..];
+        }
+        return value;
+    }
+
+    /// <summary>取路径第一段，忽略后面可能带的文件名/子路径</summary>
+    static string FirstSegment(string value)
+    {
+        var index = value.IndexOf('/');
+        return (index < 0 ? value : value[..index]).Trim();
+    }
+
+    static bool LooksLikeCid(string value) =>
+        CidV0Pattern.IsMatch(value) ||
+        CidV1Base32Pattern.IsMatch(value) ||
+        CidV1Base36Pattern.IsMatch(value);
+
+    /// <summary>IPNS 规范化：本机密钥别名映射为密钥 Id，其余原样保留</summary>
+    async Task<ParsedSubscription> NormalizeIpnsAsync(string value)
+    {
         try
         {
             var keys = await IPFSHttpAPI.GetIPNSAsync();
             var local = keys.FirstOrDefault(k => string.Equals(k.Name, value, StringComparison.OrdinalIgnoreCase));
-            if (local != null) return local.Id;
+            if (local != null) return new(SubscriptionKind.Ipns, local.Id, null);
         }
         catch (Exception e)
         {
             //key/list 失败时按普通 IPNS 标识继续解析
             AppLog.Error(e, "解析本机密钥失败");
         }
-        return value;
+        return new(SubscriptionKind.Ipns, value, null);
     }
 
     /// <summary>解析 IPNS 为根 CID</summary>
@@ -428,8 +521,11 @@ public sealed class SubscriptionService : IDisposable
         }
     }
 
-    /// <summary>读取远端 manifest；取不到 manifest 时回退为旧版"裸数据库文件"</summary>
-    async Task<(DatabaseManifest? Manifest, bool IsFolder)> FetchManifestAsync(string cid)
+    /// <summary>
+    /// 读取远端 manifest。strict 为 true（CID 快照）时不回退"裸数据库"，
+    /// 且区分"网络不可达"与"远端没有 manifest.json"两种失败。
+    /// </summary>
+    async Task<ManifestProbe> FetchManifestAsync(string cid, bool strict)
     {
         try
         {
@@ -438,13 +534,17 @@ public sealed class SubscriptionService : IDisposable
             using var reader = new StreamReader(stream);
             var json = await reader.ReadToEndAsync();
             return DatabaseManifest.TryParse(json, out var manifest)
-                ? (manifest, true)
-                : (null, true);
+                ? new ManifestProbe(manifest, true, null)
+                : new ManifestProbe(null, true, "远端 manifest 无效，已取消订阅。");
         }
         catch (HttpRequestException e)
         {
             AppLog.Error(e, "读取远端清单失败");
-            return (null, false);
+            if (e.StatusCode == null)
+                return new ManifestProbe(null, false, "无法连接 IPFS 节点，请检查节点状态与 API 地址。");
+            return strict
+                ? new ManifestProbe(null, false, "该 CID 不是有效的快照库（缺少 manifest.json）。")
+                : new ManifestProbe(null, false, null);
         }
     }
 
@@ -490,6 +590,15 @@ public sealed class SubscriptionService : IDisposable
                 File.Move(currentPath, previousPath, overwrite: true);
             File.Move(downloadPath, currentPath, overwrite: true);
             return null;
+        }
+        catch (HttpRequestException e)
+        {
+            AppLog.Error(e, "下载订阅库失败");
+            if (e.StatusCode == null)
+                return "无法连接 IPFS 节点，请检查节点状态与 API 地址。";
+            return isFolder
+                ? $"远端缺少数据库文件 {DatabaseManifest.DatabaseFileName}，无法完成订阅。"
+                : "下载失败：远端内容无法读取。";
         }
         catch (Exception e)
         {
@@ -558,6 +667,21 @@ public sealed class SubscriptionService : IDisposable
 
     string GetDirectory(IpnsSubscription sub) => Path.Combine(rootDirectory, sub.DirectoryName);
 
+    /// <summary>被拒绝的订阅不留空目录：仅当目录存在且为空时删除</summary>
+    void CleanupEmptyDirectory(IpnsSubscription sub)
+    {
+        try
+        {
+            var dir = GetDirectory(sub);
+            if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                Directory.Delete(dir);
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "清理订阅目录失败");
+        }
+    }
+
     /// <summary>把操作投递到 UI 线程并等待完成；未注入调度器时直接执行</summary>
     Task DispatchAsync(Action action)
     {
@@ -604,6 +728,12 @@ public sealed class SubscriptionService : IDisposable
 
     /// <summary>订阅请求：输入原值与可选别名</summary>
     sealed record SubscribeRequest(string Input, string? Alias);
+
+    /// <summary>输入解析结果：类型 + 规范化标识；Error 非空表示不可订阅</summary>
+    readonly record struct ParsedSubscription(SubscriptionKind Kind, string Id, string? Error);
+
+    /// <summary>远端 manifest 探测结果；Error 非空表示需要终止订阅/更新</summary>
+    sealed record ManifestProbe(DatabaseManifest? Manifest, bool IsFolder, string? Error);
 
     /// <summary>直接把进度写成日志，避免 Progress 的异步上下文投递改变日志顺序</summary>
     sealed class RelayProgress(Action<string> report) : IProgress<string>

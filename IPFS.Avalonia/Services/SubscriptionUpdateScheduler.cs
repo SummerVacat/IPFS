@@ -44,6 +44,8 @@ public sealed class SubscriptionUpdateScheduler : IDisposable
         {
             foreach (var sub in subscriptions.Subscriptions.ToList())
             {
+                //快照订阅固定 CID，不做网络检查
+                if (sub.IsSnapshot) continue;
                 //结果与失败原因由订阅服务统一写入日志
                 await subscriptions.UpdateAsync(sub, log.Progress);
             }

@@ -1,4 +1,4 @@
-﻿﻿using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
@@ -242,7 +242,7 @@ public partial class SettingsViewModel : PageViewModelBase
         IpnsMessage = $"已复制 [{key.Name}] 的 IPNS ID 到剪贴板。";
     }
 
-    /// <summary>复制订阅源分享文本：名称、IPNS 地址、发布密钥与使用提示</summary>
+    /// <summary>复制订阅源分享文本：名称、IPNS 地址、库 CID 与使用提示</summary>
     [RelayCommand]
     async Task CopyShareTextAsync()
     {
@@ -256,17 +256,39 @@ public partial class SettingsViewModel : PageViewModelBase
             return;
         }
 
+        var cid = await ResolvePublishCidAsync(key.Id);
         var lines = new[]
         {
             "IPFS 专辑订阅源",
             $"名称：{AppConfig.RepositoryName}",
             $"地址：{key.Id}",
-            $"发布密钥：{name}",
+            $"库 CID：{cid ?? "（尚未发布或无法解析）"}",
             $"生成时间：{DateTime.Now:yyyy-MM-dd HH:mm}",
-            "提示：地址由密钥签名，不同的 k51 前缀即为不同来源；IPNS 记录默认 24 小时过期，过期后需重新发布才能解析。"
+            "提示：粘贴地址可订阅并跟随更新；粘贴库 CID 则固定为该版本快照。IPNS 记录默认 24 小时过期，过期后需重新发布才能解析。"
         };
         await Dialogs.CopyToClipboardAsync(string.Join(Environment.NewLine, lines));
-        IpnsMessage = "已复制分享文本，可直接发给订阅者。";
+        IpnsMessage = cid == null
+            ? "已复制分享文本（库 CID 暂时无法解析，订阅者只能按 IPNS 订阅）。"
+            : "已复制分享文本，可直接发给订阅者。";
+    }
+
+    /// <summary>解析发布密钥当前指向的库 CID；解析不到时返回 null（不影响分享文本生成）</summary>
+    static async Task<string?> ResolvePublishCidAsync(string ipnsId)
+    {
+        try
+        {
+            var path = await IPFSHttpAPI.ResolveIPNSAsync(ipnsId);
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            var value = path.Trim();
+            if (value.StartsWith("/ipfs/", StringComparison.OrdinalIgnoreCase))
+                value = value[6..];
+            return value.Trim('/');
+        }
+        catch (Exception e)
+        {
+            AppLog.Error(e, "解析发布 CID 失败");
+            return null;
+        }
     }
 
     /// <summary>按当前选中的密钥名从已加载列表取 IPNS 地址；取不到时标明原因</summary>
@@ -351,19 +373,31 @@ public partial class SettingsViewModel : PageViewModelBase
         }
     }
 
-    /// <summary>逐条更新全部订阅</summary>
+    /// <summary>逐条更新全部订阅；快照订阅不跟随更新，直接跳过</summary>
     [RelayCommand(CanExecute = nameof(CanUpdateAll))]
     async Task UpdateAllSubscriptionsAsync()
     {
         IsSubscribing = true;
         try
         {
+            var updated = 0;
+            var skipped = 0;
             foreach (var sub in Subscriptions.ToList())
             {
+                if (sub.IsSnapshot)
+                {
+                    skipped++;
+                    continue;
+                }
+
                 Log.SetStatus($"更新订阅 {sub.Name} …");
                 await subscriptions.UpdateAsync(sub, Log.Progress);
+                updated++;
             }
-            SubscriptionMessage = "已更新全部订阅。";
+
+            SubscriptionMessage = skipped == 0
+                ? "已更新全部订阅。"
+                : $"已更新 {updated} 条订阅，跳过 {skipped} 条快照订阅。";
         }
         finally
         {
@@ -400,20 +434,20 @@ public partial class SettingsViewModel : PageViewModelBase
     {
         if (sub == null || IsSubscribing) return;
         var confirmed = await Dialogs.ConfirmAsync("取消订阅",
-            $"确定取消订阅[{sub.Name}]？\n本地已下载的数据库与备份将被删除。\n\nIPNS：{sub.IpnsId}");
+            $"确定取消订阅[{sub.Name}]？\n本地已下载的数据库与备份将被删除。\n\n{sub.SourceLabel}：{sub.IpnsId}");
         if (!confirmed) return;
 
         await subscriptions.RemoveAsync(sub);
         SubscriptionMessage = $"已取消订阅[{sub.Name}]。";
     }
 
-    /// <summary>复制订阅的 IPNS 标识</summary>
+    /// <summary>复制订阅的 IPNS 标识或快照 CID</summary>
     [RelayCommand]
     async Task CopySubscriptionIpnsAsync(IpnsSubscription? sub)
     {
         if (sub == null) return;
         await Dialogs.CopyToClipboardAsync(sub.IpnsId);
-        SubscriptionMessage = $"已复制 IPNS：{sub.IpnsId}";
+        SubscriptionMessage = $"已复制 {sub.SourceLabel}：{sub.IpnsId}";
     }
 
     /// <summary>复制订阅当前版本的库 CID</summary>

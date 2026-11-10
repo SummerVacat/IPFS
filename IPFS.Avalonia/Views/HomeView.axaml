@@ -10,6 +10,7 @@
         <StreamGeometry x:Key="IconCloud">M19.35 10.04A7.49 7.49 0 0012 4a7.48 7.48 0 00-6.91 4.83A6 6 0 006 20h13a5 5 0 00.35-9.96zM19 18H6a4 4 0 01-.68-7.94l.94-.16.32-.9A5.49 5.49 0 0112 6c2.4 0 4.5 1.56 5.23 3.88l.29.9.94.14A3 3 0 0119 18z</StreamGeometry>
         <StreamGeometry x:Key="IconChevronLeft">M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z</StreamGeometry>
         <StreamGeometry x:Key="IconChevronRight">M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z</StreamGeometry>
+        <StreamGeometry x:Key="IconSnapshot">M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2zm-8 13a5 5 0 110-10 5 5 0 010 10zm0-2a3 3 0 100-6 3 3 0 000 6z</StreamGeometry>
 
         <!-- 专辑右键菜单：网格与列表共用一份，可见性全部由缓存状态派生 -->
         <ContextMenu x:Key="AlbumMenu" x:DataType="vm:AlbumItemViewModel" Opening="AlbumMenuOpening">
@@ -154,7 +155,9 @@
                                 <PathIcon Data="{StaticResource IconDatabase}" Width="14" Height="14"
                                           IsVisible="{Binding IsLocal}" />
                                 <PathIcon Data="{StaticResource IconCloud}" Width="14" Height="14"
-                                          IsVisible="{Binding !IsLocal}" />
+                                          IsVisible="{Binding IsRemoteIpns}" />
+                                <PathIcon Data="{StaticResource IconSnapshot}" Width="14" Height="14"
+                                          IsVisible="{Binding IsSnapshot}" />
                                 <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>

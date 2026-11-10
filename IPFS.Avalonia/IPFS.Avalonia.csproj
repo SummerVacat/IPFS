@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\IPFS_256x256.ico</ApplicationIcon>
     <RootNamespace>IPFS</RootNamespace>
     <AssemblyName>IPFS.Avalonia</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Product>IPFS 媒体库</Product>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
   </PropertyGroup>

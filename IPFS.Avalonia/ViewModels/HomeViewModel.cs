@@ -493,6 +493,13 @@ public partial class HomeViewModel : PageViewModelBase
             var currentPath = sub.GetCurrentPath(subscriptions.RootDirectory);
             if (!File.Exists(currentPath))
             {
+                if (sub.IsSnapshot)
+                {
+                    Log.Append($"快照「{sub.Name}」尚未下载，请在设置页取消后重新订阅该 CID。");
+                    RevertToLocal();
+                    return;
+                }
+
                 Log.Append($"订阅「{sub.Name}」尚未下载，正在获取…");
                 var result = await subscriptions.UpdateAsync(sub, Log.Progress);
                 if (!result.Ok)
@@ -618,8 +625,7 @@ public partial class HomeViewModel : PageViewModelBase
         if (previous is { IsLocal: false, Subscription: not null })
         {
             var match = Sources.FirstOrDefault(s =>
-                s.Subscription != null &&
-                string.Equals(s.Subscription.IpnsId, previous.Subscription.IpnsId, StringComparison.OrdinalIgnoreCase));
+                s.Subscription != null && IsSameSource(s.Subscription, previous.Subscription));
             if (match != null) target = match;
         }
         else if (previous is { IsLocal: true })
@@ -632,8 +638,7 @@ public partial class HomeViewModel : PageViewModelBase
         //仅显示名变化（仍是同一订阅）时静默替换选中项，避免重新加载专辑列表
         var sameSource = previous is { IsLocal: false, Subscription: not null } &&
                          target is { IsLocal: false, Subscription: not null } &&
-                         string.Equals(previous.Subscription.IpnsId, target.Subscription.IpnsId,
-                             StringComparison.OrdinalIgnoreCase);
+                         IsSameSource(previous.Subscription, target.Subscription);
         if (!sameSource)
         {
             ActiveSource = target;
@@ -644,6 +649,10 @@ public partial class HomeViewModel : PageViewModelBase
         ActiveSource = target;
         switchingSource = false;
     }
+
+    /// <summary>同类型且标识相同即视为同一订阅（IPNS 与 CID 可能使用相同字符串）</summary>
+    static bool IsSameSource(IpnsSubscription a, IpnsSubscription b) =>
+        a.Kind == b.Kind && string.Equals(a.IpnsId, b.IpnsId, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>让 PropertyChanged 监听与订阅集合保持一致</summary>
     void SyncSubscriptionWatchers()
@@ -671,7 +680,7 @@ public partial class HomeViewModel : PageViewModelBase
     /// <summary>订阅更新/回滚后：正在显示该订阅时重载列表</summary>
     void OnSubscriptionVersionChanged(object? sender, IpnsSubscription sub)
     {
-        if (ActiveSource?.Subscription?.IpnsId != sub.IpnsId) return;
+        if (ActiveSource?.Subscription is not { } active || !IsSameSource(active, sub)) return;
         _ = ReloadRemoteAsync(sub);
     }
 

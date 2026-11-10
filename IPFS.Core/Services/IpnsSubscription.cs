@@ -6,8 +6,19 @@ using System.Text.Json.Serialization;
 
 namespace IPFS;
 
+/// <summary>订阅类型：IPNS 是可变指针，CID 是固定快照</summary>
+public enum SubscriptionKind
+{
+    /// <summary>IPNS 订阅：每次更新重新解析，可滚动到新版本</summary>
+    Ipns = 0,
+
+    /// <summary>快照订阅：以输入的 CID 为准，内容不变、不跟随更新</summary>
+    Cid = 1
+}
+
 /// <summary>
-/// 一条 IPNS 订阅：标识、显示名、当前/上一版本 CID 与最近一次下载状态。
+/// 一条订阅：标识、显示名、当前/上一版本 CID 与最近一次下载状态。
+/// IPNS 可跟随发布者更新；CID 快照固定为订阅时的版本。
 /// 该模型直接序列化进 settings.json；本地目录名由 <see cref="IpnsId"/> 计算，不持久化。
 /// 实现 INotifyPropertyChanged，使设置页列表与首页左栏在更新/回滚/改名后立即刷新。
 /// </summary>
@@ -29,6 +40,7 @@ public sealed class IpnsSubscription : INotifyPropertyChanged
     public const string StatusFailed = "失败";
 
     string ipnsId = string.Empty;
+    SubscriptionKind kind = SubscriptionKind.Ipns;
     string name = string.Empty;
     string? repositoryName;
     string? alias;
@@ -38,11 +50,18 @@ public sealed class IpnsSubscription : INotifyPropertyChanged
     string? lastCheckedAt;
     string status = StatusNotDownloaded;
 
-    /// <summary>规范化后的 IPNS 标识，唯一</summary>
+    /// <summary>规范化后的 IPNS 标识或快照 CID，唯一（同类型内比较）</summary>
     public string IpnsId
     {
         get => ipnsId;
         set => Set(ref ipnsId, value);
+    }
+
+    /// <summary>订阅类型；旧配置没有该字段时默认为 IPNS</summary>
+    public SubscriptionKind Kind
+    {
+        get => kind;
+        set => Set(ref kind, value);
     }
 
     /// <summary>显示名：自定义别名优先，否则 manifest 中的仓库名</summary>
@@ -113,6 +132,22 @@ public sealed class IpnsSubscription : INotifyPropertyChanged
     [JsonIgnore]
     public bool IsHealthy => Status is StatusSuccess or StatusUpToDate or StatusRestored;
 
+    /// <summary>是否为固定 CID 快照（不跟随更新、不可回滚）</summary>
+    [JsonIgnore]
+    public bool IsSnapshot => Kind == SubscriptionKind.Cid;
+
+    /// <summary>是否为可跟随更新的 IPNS 订阅</summary>
+    [JsonIgnore]
+    public bool IsIpns => Kind == SubscriptionKind.Ipns;
+
+    /// <summary>订阅标识的显示标签（设置页行首）</summary>
+    [JsonIgnore]
+    public string SourceLabel => IsSnapshot ? "快照 CID" : "IPNS";
+
+    /// <summary>订阅类型的短名称（提示文案使用）</summary>
+    [JsonIgnore]
+    public string SourceTitle => IsSnapshot ? "快照" : "IPNS";
+
     /// <summary>本地目录名：sub- + IpnsId 的 SHA256 前 8 位十六进制</summary>
     [JsonIgnore]
     public string DirectoryName =>
@@ -148,6 +183,13 @@ public sealed class IpnsSubscription : INotifyPropertyChanged
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFailed)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsHealthy)));
+        }
+        if (propertyName == nameof(Kind))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSnapshot)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIpns)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SourceLabel)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SourceTitle)));
         }
         return true;
     }

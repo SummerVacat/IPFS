@@ -128,23 +128,23 @@
                 </StackPanel>
             </Border>
 
-            <!-- IPNS 订阅 -->
+            <!-- 订阅源：IPNS 跟随更新，或固定 CID 快照 -->
             <Border Background="{DynamicResource CardBackgroundBrush}"
                     BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
                     CornerRadius="6" Padding="12">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="IPNS 订阅" FontWeight="SemiBold" />
+                    <TextBlock Text="订阅源" FontWeight="SemiBold" />
 
                     <Grid ColumnDefinitions="*,150,Auto" ColumnSpacing="8">
                         <TextBox Text="{Binding NewSubscriptionIpns}"
-                                 PlaceholderText="IPNS 名称或 /ipns/ 地址（k51…、example.com）" />
+                                 PlaceholderText="IPNS 名称/地址，或库 CID（k51…、example.com、bafy…）" />
                         <TextBox Grid.Column="1" Text="{Binding NewSubscriptionAlias}"
                                  PlaceholderText="别名（可选）" />
                         <Button Grid.Column="2" Content="订阅" Width="64"
                                 Command="{Binding SubscribeCommand}" />
                     </Grid>
 
-                    <TextBlock Text="订阅会把远端数据库下载到本地（仅保留当前与上一版本），订阅数据只读。"
+                    <TextBlock Text="订阅会把远端数据库下载到本地（仅保留当前与上一版本），订阅数据只读。粘贴 IPNS 跟随发布者更新；粘贴库 CID 则固定为该版本快照，不会自动更新。"
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
 
                     <ItemsControl ItemsSource="{Binding Subscriptions}">
@@ -159,6 +159,11 @@
                                                  ToolTip.Tip="别名；留空则跟随数据仓库名称" />
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                                                     HorizontalAlignment="Left" VerticalAlignment="Center">
+                                            <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                                    CornerRadius="3" Padding="4,0" VerticalAlignment="Center"
+                                                    IsVisible="{Binding IsSnapshot}">
+                                                <TextBlock Text="快照" FontSize="10" Opacity="0.75" />
+                                            </Border>
                                             <Ellipse Width="6" Height="6" VerticalAlignment="Center" Fill="#3BA55D"
                                                      IsVisible="{Binding IsHealthy}" />
                                             <Ellipse Width="6" Height="6" VerticalAlignment="Center" Fill="#D9534F"
@@ -170,10 +175,10 @@
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4"
                                                     HorizontalAlignment="Right" VerticalAlignment="Center">
-                                            <Button Content="更新" Width="64" 
+                                            <Button Content="更新" Width="64" IsVisible="{Binding IsIpns}"
                                                     Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).UpdateSubscriptionCommand}"
                                                     CommandParameter="{Binding}" />
-                                            <Button Content="恢复" Width="64" 
+                                            <Button Content="恢复" Width="64" IsVisible="{Binding IsIpns}"
                                                     IsEnabled="{Binding HasPrevious}" ToolTip.Tip="恢复到上一版本"
                                                     Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RestoreSubscriptionCommand}"
                                                     CommandParameter="{Binding}" />
@@ -183,8 +188,8 @@
                                                     CommandParameter="{Binding}" />
                                         </StackPanel>
 
-                                        <!-- IPNS 显示复制 -->
-                                        <TextBlock Grid.Row="1" Text="IPNS" FontSize="11" Opacity="0.55"
+                                        <!-- IPNS 地址 / 快照 CID 显示复制 -->
+                                        <TextBlock Grid.Row="1" Text="{Binding SourceLabel}" FontSize="11" Opacity="0.55"
                                                    HorizontalAlignment="Right" VerticalAlignment="Center" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding IpnsId}"
                                                    FontSize="11" FontFamily="Consolas,Menlo,monospace"
@@ -194,19 +199,22 @@
                                                 Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CopySubscriptionIpnsCommand}"
                                                 CommandParameter="{Binding}" />
 
-                                        <!-- 库 CID 显示复制 -->
-                                        <TextBlock Grid.Row="2" Text="库 CID" FontSize="11" Opacity="0.55"
-                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Row="2" Grid.Column="1"
-                                                   Text="{Binding LastCid, TargetNullValue='（未下载）'}"
-                                                   FontSize="11" FontFamily="Consolas,Menlo,monospace"
-                                                   Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                   ToolTip.Tip="{Binding LastCid}" />
-                                        <Button Grid.Row="2" Grid.Column="2" Content="复制" Width="64" 
-                                                HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                IsVisible="{Binding LastCid, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
-                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CopySubscriptionCidCommand}"
-                                                CommandParameter="{Binding}" />
+                                        <!-- 库 CID 显示复制（快照的 CID 已在上一行展示，不再重复） -->
+                                        <Grid Grid.Row="2" Grid.ColumnSpan="3" ColumnDefinitions="200,*,Auto"
+                                              ColumnSpacing="8" IsVisible="{Binding IsIpns}">
+                                            <TextBlock Text="库 CID" FontSize="11" Opacity="0.55"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding LastCid, TargetNullValue='（未下载）'}"
+                                                       FontSize="11" FontFamily="Consolas,Menlo,monospace"
+                                                       Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding LastCid}" />
+                                            <Button Grid.Column="2" Content="复制" Width="64" 
+                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                    IsVisible="{Binding LastCid, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CopySubscriptionCidCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
